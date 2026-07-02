@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShortScribe — Автонарезка Shorts и Клипов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/style.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+                            400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+                            800: '#1e40af', 900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+    <!-- ── Хедер ── -->
+    <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center font-bold text-sm">SS</div>
+                <h1 class="text-lg font-semibold tracking-tight">ShortScribe</h1>
+            </div>
+            <nav id="main-nav" class="flex gap-1">
+                <button data-tab="dashboard" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition bg-brand-600 text-white">
+                    📤 Загрузка
+                </button>
+                <button data-tab="workspace" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition text-gray-400 hover:text-white hover:bg-gray-800">
+                    ✂️ Редактор
+                </button>
+                <button data-tab="publishing" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition text-gray-400 hover:text-white hover:bg-gray-800">
+                    🚀 Публикация
+                </button>
+                <button data-tab="settings" class="nav-btn px-4 py-2 rounded-lg text-sm font-medium transition text-gray-400 hover:text-white hover:bg-gray-800">
+                    ⚙️ Настройки
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ── Основной контент ── -->
+    <main class="max-w-7xl mx-auto px-4 py-6">
+
+        <!-- === ЭКРАН 1: Dashboard (Загрузка) === -->
+        <section id="tab-dashboard" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- Список проектов -->
+                <div>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-bold">📁 Проекты</h2>
+                        <button id="btn-new-project" class="bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                            + Новый проект
+                        </button>
+                    </div>
+                    <div id="projects-list" class="space-y-3">
+                        <p class="text-gray-500 text-sm">Загрузка...</p>
+                    </div>
+                </div>
+
+                <!-- Форма загрузки видео -->
+                <div id="upload-panel" class="bg-gray-900 border border-gray-800 rounded-xl p-6 hidden">
+                    <h2 class="text-lg font-bold mb-4">📤 Загрузить видео</h2>
+
+                    <!-- Зона загрузки видео -->
+                    <div id="video-dropzone" class="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center cursor-pointer hover:border-brand-500 transition mb-4">
+                        <input type="file" id="video-input" accept=".mp4,.mkv,.mov,.avi,.webm" class="hidden">
+                        <div class="text-4xl mb-2">🎬</div>
+                        <p class="text-gray-400 text-sm">Перетащите видео или кликните для выбора</p>
+                        <p class="text-gray-600 text-xs mt-1">MP4, MKV, MOV до 2 GB</p>
+                    </div>
+                    <div id="video-info" class="hidden text-sm text-gray-400 mb-4"></div>
+                    <progress id="video-progress" class="hidden w-full h-2 rounded-full mb-4 [&::-webkit-progress-bar]:bg-gray-800 [&::-webkit-progress-value]:bg-brand-500"></progress>
+
+                    <!-- Зона загрузки баннера -->
+                    <div id="banner-dropzone" class="border-2 border-dashed border-gray-700 rounded-xl p-6 text-center cursor-pointer hover:border-purple-500 transition mb-4 hidden">
+                        <input type="file" id="banner-input" accept=".png,.jpg,.jpeg,.webp" class="hidden">
+                        <div class="text-3xl mb-1">🖼️</div>
+                        <p class="text-gray-400 text-sm">Загрузить рекламный баннер (PNG)</p>
+                    </div>
+                    <div id="banner-info" class="hidden text-sm text-gray-400 mb-4"></div>
+
+                    <!-- Позиция баннера -->
+                    <div id="banner-pos-panel" class="hidden mb-4">
+                        <label class="text-sm text-gray-400 block mb-2">Позиция баннера:</label>
+                        <div class="flex gap-2">
+                            <button data-pos="top" class="pos-btn px-3 py-1.5 rounded-lg text-xs border border-gray-700 text-gray-400 hover:border-brand-500">Верх</button>
+                            <button data-pos="center" class="pos-btn px-3 py-1.5 rounded-lg text-xs border border-gray-700 text-gray-400 hover:border-brand-500">Центр</button>
+                            <button data-pos="bottom" class="pos-btn px-3 py-1.5 rounded-lg text-xs border border-brand-600 bg-brand-600/20 text-brand-300">Низ</button>
+                        </div>
+                    </div>
+
+                    <!-- Кнопка запуска анализа -->
+                    <button id="btn-analyze" class="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed py-3 rounded-xl font-semibold transition hidden">
+                        🔍 Запустить анализ речи
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- === ЭКРАН 2: Workspace (Редактор) === -->
+        <section id="tab-workspace" class="tab-content hidden">
+            <!-- Панель прогресса (глобальная) -->
+            <div id="progress-panel" class="hidden mb-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span id="progress-type" class="text-sm font-medium text-brand-400"></span>
+                    <span id="progress-pct" class="text-sm text-gray-400"></span>
+                </div>
+                <div class="w-full bg-gray-800 rounded-full h-2.5 mb-1">
+                    <div id="progress-bar" class="bg-brand-500 h-2.5 rounded-full transition-all duration-500" style="width:0%"></div>
+                </div>
+                <p id="progress-msg" class="text-xs text-gray-500"></p>
+            </div>
+            <div id="workspace-empty" class="text-center py-20 text-gray-500">
+                <div class="text-5xl mb-4">✂️</div>
+                <p>Выберите проект на вкладке «Загрузка»<br>и запустите анализ речи, чтобы начать нарезку</p>
+            </div>
+            <div id="workspace-content" class="hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Левая панель: транскрипт -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                        <h3 class="font-bold mb-3">📝 Транскрипт</h3>
+                        <div id="transcript-text" class="text-sm text-gray-300 max-h-[70vh] overflow-y-auto space-y-2"></div>
+                    </div>
+                    <!-- Правая панель: клипы -->
+                    <div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold">🎞️ Клипы</h3>
+                            <button id="btn-process-selected" class="bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50" disabled>
+                                ⚡ Обработать выбранные
+                            </button>
+                        </div>
+                        <div id="clips-list" class="space-y-3 max-h-[60vh] overflow-y-auto"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- === ЭКРАН 3: Publishing (Публикация) === -->
+        <section id="tab-publishing" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Список готовых клипов -->
+                <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
+                    <h2 class="text-xl font-bold mb-4">🚀 Очередь публикации</h2>
+                    <div id="publishing-list" class="space-y-3 max-h-[60vh] overflow-y-auto">
+                        <p class="text-gray-500 text-sm">Обработанные клипы появятся здесь</p>
+                    </div>
+                    <div class="flex gap-3 mt-4">
+                        <button id="btn-publish-selected" class="bg-green-600 hover:bg-green-700 disabled:opacity-50 px-6 py-3 rounded-xl font-semibold transition hidden">
+                            📤 Опубликовать выбранное
+                        </button>
+                        <button id="btn-save-selected" class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-6 py-3 rounded-xl font-semibold transition hidden">
+                            💾 Сохранить в папку
+                        </button>
+                    </div>
+                </div>
+                <!-- Предпросмотр -->
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                    <h3 class="font-bold mb-3">👁 Предпросмотр</h3>
+                    <div id="preview-container" class="aspect-[9/16] bg-gray-950 rounded-lg flex items-center justify-center overflow-hidden">
+                        <p class="text-gray-600 text-sm">Выберите клип для предпросмотра</p>
+                    </div>
+                    <div id="preview-info" class="mt-3 text-xs text-gray-500"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- === ЭКРАН 4: Settings === -->
+        <section id="tab-settings" class="tab-content hidden">
+            <div class="max-w-2xl space-y-6">
+
+                <!-- API токены -->
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                    <h2 class="text-xl font-bold mb-6">⚙️ Настройки API</h2>
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium mb-2">VK Access Token</label>
+                        <input type="password" id="vk-token" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500" placeholder="vk1.a....">
+                        <p class="text-xs text-gray-500 mt-1">Токен с правами: video, wall, offline</p>
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium mb-2">YouTube Client Secret (JSON)</label>
+                        <textarea id="yt-secret" rows="6" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm font-mono focus:outline-none focus:border-brand-500" placeholder='{"installed":{"client_id":"...","project_id":"...","auth_uri":"...","token_uri":"...","auth_provider_x509_cert_url":"...","client_secret":"...","redirect_uris":["..."]}}'></textarea>
+                    </div>
+                    <button id="btn-save-tokens" class="bg-brand-600 hover:bg-brand-700 px-6 py-2.5 rounded-xl font-medium transition">
+                        💾 Сохранить токены
+                    </button>
+                    <span id="tokens-status" class="ml-3 text-sm"></span>
+                </div>
+
+                <!-- Статус Ollama -->
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                    <h2 class="text-xl font-bold mb-4">🦙 Ollama</h2>
+                    <div id="ollama-status" class="text-sm">
+                        <button id="btn-check-ollama" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition">Проверить статус</button>
+                        <div id="ollama-result" class="mt-3 hidden"></div>
+                    </div>
+                </div>
+
+                <!-- Обновление -->
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                    <h2 class="text-xl font-bold mb-4">🔄 Обновление</h2>
+                    <div id="update-status" class="text-sm text-gray-400">
+                        <button id="btn-check-update" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm transition">Проверить обновления</button>
+                        <div id="update-result" class="mt-3 hidden"></div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ── Модальное окно (создание клипа вручную) ── -->
+    <div id="modal-overlay" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
+        <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold mb-4">✂️ Новый клип</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400">Начало (сек)</label>
+                    <input type="number" id="modal-start" step="0.1" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Конец (сек)</label>
+                    <input type="number" id="modal-end" step="0.1" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Название</label>
+                    <input type="text" id="modal-title" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm mt-1">
+                </div>
+                <label class="flex items-center gap-2 text-sm text-gray-300">
+                    <input type="checkbox" id="modal-banner" checked class="rounded"> Включить баннер
+                </label>
+            </div>
+            <div class="flex gap-3 mt-5">
+                <button id="modal-cancel" class="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-sm transition hover:bg-gray-800">Отмена</button>
+                <button id="modal-create" class="flex-1 px-4 py-2 bg-brand-600 rounded-lg text-sm font-medium transition hover:bg-brand-700">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>
