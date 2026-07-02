@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
 from backend.routers import projects, processing, publishing
 from backend.services.task_manager import task_manager
+from backend.config import APP_VERSION
 
 
 @asynccontextmanager
@@ -25,21 +26,25 @@ async def lifespan(app: FastAPI):
 
 
 async def _startup_checks():
-    """Фоновые проверки при старте."""
-    from backend.services.ollama_check import check_ollama, auto_pull_models
-    status = check_ollama()
-    if not status["running"]:
-        print(f"[ShortScribe] ⚠ {status['error']}")
-    elif status["missing_models"]:
-        print(f"[ShortScribe] ⚠ Не хватает моделей Ollama: {status['missing_models']}")
-        print("[ShortScribe] Запустите авто-установку: ollama pull qwen2.5:7b")
+    """Фоновые проверки при старте (в отдельных потоках, не блокируют event loop)."""
+    import asyncio, threading
 
-    # Проверка обновлений
-    from backend.services.updater import check_update as _cu
-    update = _cu()
-    if update["update_available"]:
-        print(f"[ShortScribe] 🔔 Доступна новая версия: {update['latest']} (текущая: {update['current']})")
-        print(f"[ShortScribe] Скачайте: {update['url']}")
+    def _check():
+        from backend.services.ollama_check import check_ollama
+        status = check_ollama()
+        if not status["running"]:
+            print(f"[ShortScribe] ⚠ {status['error']}")
+        elif status["missing_models"]:
+            print(f"[ShortScribe] ⚠ Не хватает моделей Ollama: {status['missing_models']}")
+            print("[ShortScribe] Запустите: ollama pull qwen2.5:7b")
+
+        from backend.services.updater import check_update as _cu
+        update = _cu()
+        if update["update_available"]:
+            print(f"[ShortScribe] 🔔 Доступна новая версия: {update['latest']} (текущая: {update['current']})")
+            print(f"[ShortScribe] Скачайте: {update['url']}")
+
+    await asyncio.get_running_loop().run_in_executor(None, _check)
 
 
 app = FastAPI(

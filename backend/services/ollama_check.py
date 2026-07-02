@@ -5,11 +5,9 @@ import httpx
 import subprocess
 import sys
 import os
-from backend.config import WHISPER_MODEL
 
 OLLAMA_URL = "http://127.0.0.1:11434"
 REQUIRED_MODELS = [
-    WHISPER_MODEL,         # faster-whisper (не через Ollama, но для справки)
     "qwen2.5:7b",          # для генерации названий
 ]
 

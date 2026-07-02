@@ -8,8 +8,7 @@ import os
 from pathlib import Path
 from backend.config import APP_VERSION
 
-# ⚠ Замените на свой репозиторий перед пушем:
-GITHUB_REPO = "username/ShortScribe"
+GITHUB_REPO = "endeprys/ShortScribe"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES = f"https://github.com/{GITHUB_REPO}/releases"
 

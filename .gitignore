@@ -24,3 +24,4 @@ backend/shorts.db
 # OS
 .DS_Store
 Thumbs.db
+.hermes/
