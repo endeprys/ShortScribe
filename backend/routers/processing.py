@@ -221,6 +221,23 @@ async def start_transcription(
             )
             if ai_result["clips"]:
                 suggested_clips = ai_result["clips"]
+                # Если ИИ вернул слишком мало — добавляем heuristic
+                if len(suggested_clips) < 3:
+                    if _progress_callback:
+                        _progress_callback(93, "ИИ дал мало клипов, добавляю авто-нарезку...")
+                    segs = [
+                        TranscriptionSegment(
+                            start=s["start"], end=s["end"], text=s["text"],
+                            is_complete_sentence=s.get("is_complete_sentence", False),
+                        )
+                        for s in result["segments"]
+                    ]
+                    extra = _suggest_shorts(segs)
+                    existing_starts = {round(c["start_time"], 1) for c in suggested_clips}
+                    for c in extra:
+                        if round(c["start_time"], 1) not in existing_starts:
+                            suggested_clips.append(c)
+                            existing_starts.add(round(c["start_time"], 1))
             else:
                 ai_error = ai_result.get("error")
                 if _progress_callback:
