@@ -158,66 +158,93 @@ def _suggest_shorts(
     max_dur: float = SHORTS_MAX_DURATION,
 ) -> list[dict]:
     """
-    Скользящее окно: сборка сегментов 20-55 сек,
-    с завершением на точке/воскл./вопр. знаке.
+    Генерирует клипы с шагом ~10 сек (перекрытие), чтобы покрыть всё видео.
+    Каждый клип: от start_time набирает сегменты до min_dur (30с),
+    завершаясь на точке, но не превышая max_dur (55с).
+
+    Возвращает список клипов, отсортированных по start_time, без дубликатов.
     """
     if not segments:
         return []
 
+    total_duration = segments[-1].end
+    step = 10.0  # шаг между началами клипов (сек)
+    seen_starts = set()
     suggested = []
-    i = 0
 
-    while i < len(segments):
+    cursor = 0.0
+    while cursor < total_duration - min_dur:
+        # Найти первый сегмент, начинающийся >= cursor
+        start_idx = None
+        for idx, seg in enumerate(segments):
+            if seg.end > cursor and (start_idx is None or segments[start_idx].start > seg.start):
+                if seg.start >= cursor:
+                    start_idx = idx
+                    break
+                elif start_idx is None:
+                    start_idx = idx
+
+        if start_idx is None:
+            cursor += step
+            continue
+
         window_segments = []
         window_dur = 0.0
-        j = i
+        found = False
 
-        while j < len(segments):
+        for j in range(start_idx, len(segments)):
             seg = segments[j]
-            dur = seg.end - seg.start
-            window_dur += dur
             window_segments.append(seg)
+            window_dur = seg.end - window_segments[0].start
 
-            if min_dur <= window_dur <= max_dur and seg.is_complete_sentence:
-                suggested.append({
-                    "start_time": window_segments[0].start,
-                    "end_time": seg.end,
-                    "text_snippet": " ".join(s.text for s in window_segments),
-                    "duration": round(window_dur, 1),
-                })
-                for s in window_segments:
-                    s.suggested_shorts = True
-                break
+            if window_dur >= min_dur and seg.is_complete_sentence:
+                if window_dur <= max_dur:
+                    found = True
+                    break
+                else:
+                    # Перебор — ищем точку внутри окна
+                    for k in range(len(window_segments) - 1, 0, -1):
+                        sub_dur = window_segments[k].end - window_segments[0].start
+                        if min_dur <= sub_dur <= max_dur and window_segments[k].is_complete_sentence:
+                            found = True
+                            # обрезаем window_segments до k
+                            window_segments = window_segments[:k + 1]
+                            window_dur = sub_dur
+                            break
+                    break
 
             if window_dur > max_dur:
-                found = False
-                for k in range(len(window_segments) - 1, 0, -1):
-                    sub_dur = window_segments[k].end - window_segments[0].start
-                    if min_dur <= sub_dur <= max_dur and window_segments[k].is_complete_sentence:
-                        suggested.append({
-                            "start_time": window_segments[0].start,
-                            "end_time": window_segments[k].end,
-                            "text_snippet": " ".join(s.text for s in window_segments[:k + 1]),
-                            "duration": round(sub_dur, 1),
-                        })
-                        for s in window_segments[:k + 1]:
-                            s.suggested_shorts = True
-                        found = True
-                        break
-                if not found:
-                    suggested.append({
-                        "start_time": window_segments[0].start,
-                        "end_time": window_segments[-1].end,
-                        "text_snippet": " ".join(s.text for s in window_segments),
-                        "duration": round(window_dur, 1),
-                    })
                 break
 
-            j += 1
+        if not found or window_dur < min_dur:
+            cursor += step
+            continue
 
-        if j >= len(segments):
-            break
-        i = max(i + 1, j - 1)
+        start_t = window_segments[0].start
+        end_t = window_segments[-1].end
+        dur = round(end_t - start_t, 1)
+
+        # Дубликаты по start_time
+        key = round(start_t, 1)
+        if key in seen_starts:
+            cursor += step
+            continue
+        seen_starts.add(key)
+
+        if dur < min_dur or dur > max_dur:
+            cursor += step
+            continue
+
+        suggested.append({
+            "start_time": start_t,
+            "end_time": end_t,
+            "text_snippet": " ".join(s.text for s in window_segments),
+            "duration": dur,
+        })
+        for s in window_segments:
+            s.suggested_shorts = True
+
+        cursor += step
 
     return suggested
 

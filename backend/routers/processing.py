@@ -278,6 +278,39 @@ async def start_transcription(
 
         asyncio.run(_save())
 
+        # Авто-генерация названий и описаний через Ollama
+        if clip_mode in ("ai", "heuristic") and suggested_clips:
+            if _progress_callback:
+                _progress_callback(96, "Генерирую названия через ИИ...")
+            try:
+                from backend.services.metadata_generator import generate_metadata as _gen_meta
+                import asyncio as _aio
+
+                async def _update_meta(clip_idx: int, title: str, desc: str):
+                    async with async_session() as s:
+                        r = await s.execute(
+                            select(Clip).where(
+                                Clip.project_id == pid,
+                                Clip.is_suggested.is_(True),
+                            ).order_by(Clip.start_time)
+                        )
+                        all_clips = r.scalars().all()
+                        if clip_idx < len(all_clips):
+                            all_clips[clip_idx].title = title[:256]
+                            all_clips[clip_idx].description = desc[:2048]
+                            await s.commit()
+
+                for idx, sug in enumerate(suggested_clips):
+                    text = sug.get("text_snippet", "")
+                    if len(text) < 20:
+                        continue
+                    meta = _gen_meta(text)
+                    if meta.get("title") and not meta.get("error"):
+                        _aio.run(_update_meta(idx, meta["title"], meta.get("description", "")))
+
+            except Exception:
+                pass  # если Ollama недоступен — не фатально
+
         result["suggested_clips"] = suggested_clips
         result["clip_selection_mode"] = mode
         if ai_error:
