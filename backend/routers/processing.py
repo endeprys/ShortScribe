@@ -420,6 +420,12 @@ async def process_clips(
                         if seg["end"] > spec["start_time"] and seg["start"] < spec["end_time"]
                     ]
 
+                # Масштабируем прогресс: base_pct + детальный прогресс клипа
+                def clip_progress(detail_pct, msg=""):
+                    if _progress_callback:
+                        scaled = int(base_pct + detail_pct / total) if total > 0 else detail_pct
+                        _progress_callback(min(scaled, base_pct + 99 // max(total, 1)), msg or f"Клип {i+1}/{total}...")
+
                 output_path = _process_clip(
                     input_path=video_path,
                     output_dir=pid,
@@ -432,6 +438,7 @@ async def process_clips(
                     banner_x=vs_settings.get("banner_x"),
                     banner_y=vs_settings.get("banner_y"),
                     banner_scale=vs_settings.get("banner_scale"),
+                    _progress_callback=clip_progress,
                     banner_opacity=vs_settings.get("banner_opacity"),
                     subtitles_enabled=vs_settings.get("subtitles_enabled", True),
                     subtitle_font=vs_settings.get("subtitle_font", "Arial"),

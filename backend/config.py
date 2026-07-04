@@ -97,7 +97,7 @@ WHISPER_DEVICE = "cpu"           # cpu или cuda
 WHISPER_COMPUTE_TYPE = "int8"    # float16, int8 (int8 — быстрее на CPU)
 
 # Длительность рекомендуемого Shorts (секунды)
-SHORTS_MIN_DURATION = 20
+SHORTS_MIN_DURATION = 30
 SHORTS_MAX_DURATION = 55
 
 # Режимы автоматической нарезки клипов после транскрипции
