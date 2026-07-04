@@ -19,6 +19,8 @@ from backend.schemas import (
 from backend.config import (
     UPLOADS_DIR, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_IMAGE_EXTENSIONS,
     MAX_UPLOAD_SIZE_MB, SUBTITLE_FONTS, CLIP_SELECTION_MODES,
+    AI_CLIP_DURATION_MODES, AI_CLIP_ABS_MIN_SECONDS, AI_CLIP_ABS_MAX_SECONDS,
+    SHORTS_MIN_DURATION, SHORTS_MAX_DURATION,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -293,6 +295,29 @@ async def update_clip_settings(
         vs.clip_selection_mode = data.clip_selection_mode
     if data.clip_buffer_seconds is not None:
         vs.clip_buffer_seconds = data.clip_buffer_seconds
+    if data.ai_clip_duration_mode is not None:
+        if data.ai_clip_duration_mode not in AI_CLIP_DURATION_MODES:
+            raise HTTPException(
+                400,
+                f"ai_clip_duration_mode должен быть: {', '.join(AI_CLIP_DURATION_MODES)}",
+            )
+        vs.ai_clip_duration_mode = data.ai_clip_duration_mode
+    if data.ai_clip_min_seconds is not None:
+        vs.ai_clip_min_seconds = data.ai_clip_min_seconds
+    if data.ai_clip_max_seconds is not None:
+        vs.ai_clip_max_seconds = data.ai_clip_max_seconds
+
+    # Валидация диапазона длительности
+    lo = vs.ai_clip_min_seconds or SHORTS_MIN_DURATION
+    hi = vs.ai_clip_max_seconds or SHORTS_MAX_DURATION
+    if lo < AI_CLIP_ABS_MIN_SECONDS or hi > AI_CLIP_ABS_MAX_SECONDS:
+        raise HTTPException(
+            400,
+            f"Длительность клипа: от {AI_CLIP_ABS_MIN_SECONDS} до {AI_CLIP_ABS_MAX_SECONDS} сек",
+        )
+    if lo > hi:
+        raise HTTPException(400, "ai_clip_min_seconds не может быть больше ai_clip_max_seconds")
+
     await session.commit()
     await session.refresh(vs)
     return _video_source_to_response(vs)
@@ -406,4 +431,7 @@ def _video_source_to_response(vs: VideoSource) -> VideoSourceResponse:
         banner_url=banner_url,
         clip_selection_mode=vs.clip_selection_mode or "heuristic",
         clip_buffer_seconds=vs.clip_buffer_seconds if vs.clip_buffer_seconds is not None else 2.0,
+        ai_clip_duration_mode=vs.ai_clip_duration_mode or "auto",
+        ai_clip_min_seconds=vs.ai_clip_min_seconds if vs.ai_clip_min_seconds is not None else 20.0,
+        ai_clip_max_seconds=vs.ai_clip_max_seconds if vs.ai_clip_max_seconds is not None else 55.0,
     )

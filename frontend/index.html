@@ -126,12 +126,39 @@
                                 </div>
                             </label>
                         </div>
-                        <div id="ai-buffer-panel" class="hidden mt-3 pl-1">
-                            <label class="text-xs text-gray-400">
-                                Буфер ± <span id="clip-buffer-val">2</span> сек к таймингам ИИ
-                            </label>
-                            <input type="range" id="clip-buffer" min="0" max="5" step="0.5" value="2" class="w-full mt-1">
-                            <p class="text-xs text-gray-600 mt-1">Чтобы повествование не начиналось резко и не обрывалось моментально</p>
+                        <div id="ai-settings-panel" class="hidden mt-3 pl-1 space-y-3 border-t border-gray-800 pt-3">
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-2">Длительность клипа (ИИ):</label>
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                        <input type="radio" name="ai-duration-mode" value="auto" checked class="rounded-full">
+                                        Автоматически — ИИ сам подбирает оптимальную длину
+                                    </label>
+                                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                        <input type="radio" name="ai-duration-mode" value="range" class="rounded-full">
+                                        Задать диапазон в секундах
+                                    </label>
+                                </div>
+                                <div id="ai-duration-range" class="hidden grid grid-cols-2 gap-2 mt-2">
+                                    <div>
+                                        <label class="text-xs text-gray-500">От (сек)</label>
+                                        <input type="number" id="ai-clip-min" min="5" max="180" value="20"
+                                            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm mt-1">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">До (сек)</label>
+                                        <input type="number" id="ai-clip-max" min="5" max="180" value="55"
+                                            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm mt-1">
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400">
+                                    Буфер ± <span id="clip-buffer-val">2</span> сек к таймингам ИИ
+                                </label>
+                                <input type="range" id="clip-buffer" min="0" max="5" step="0.5" value="2" class="w-full mt-1">
+                                <p class="text-xs text-gray-600 mt-1">Чтобы повествование не начиналось резко и не обрывалось моментально</p>
+                            </div>
                         </div>
                     </div>
 

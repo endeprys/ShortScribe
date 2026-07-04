@@ -67,6 +67,9 @@ class VideoSource(Base):
     # Режим нарезки клипов: manual | heuristic | ai
     clip_selection_mode: Mapped[str] = mapped_column(String(16), default="heuristic")
     clip_buffer_seconds: Mapped[float] = mapped_column(Float, default=2.0)
+    ai_clip_duration_mode: Mapped[str] = mapped_column(String(16), default="auto")  # auto | range
+    ai_clip_min_seconds: Mapped[float] = mapped_column(Float, default=20.0)
+    ai_clip_max_seconds: Mapped[float] = mapped_column(Float, default=55.0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

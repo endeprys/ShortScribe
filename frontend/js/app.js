@@ -186,9 +186,16 @@
     function applyClipSettingsToUI(vs) {
         const mode = vs?.clip_selection_mode || 'heuristic';
         const buffer = vs?.clip_buffer_seconds ?? 2;
+        const aiDurMode = vs?.ai_clip_duration_mode || 'auto';
+        const aiMin = vs?.ai_clip_min_seconds ?? 20;
+        const aiMax = vs?.ai_clip_max_seconds ?? 55;
 
         $$('input[name="clip-mode"]').forEach(r => {
             r.checked = r.value === mode;
+        });
+
+        $$('input[name="ai-duration-mode"]').forEach(r => {
+            r.checked = r.value === aiDurMode;
         });
 
         const bufferInput = $('#clip-buffer');
@@ -196,16 +203,35 @@
         if (bufferInput) bufferInput.value = buffer;
         if (bufferVal) bufferVal.textContent = buffer;
 
+        const minInput = $('#ai-clip-min');
+        const maxInput = $('#ai-clip-max');
+        if (minInput) minInput.value = aiMin;
+        if (maxInput) maxInput.value = aiMax;
+
         updateClipModeUI();
         updateAnalyzeButtonLabel();
     }
 
+    function getAiDurationMode() {
+        const checked = document.querySelector('input[name="ai-duration-mode"]:checked');
+        return checked ? checked.value : 'auto';
+    }
+
     function updateClipModeUI() {
         const mode = getSelectedClipMode();
-        const bufferPanel = $('#ai-buffer-panel');
-        if (bufferPanel) {
-            bufferPanel.classList.toggle('hidden', mode !== 'ai');
+        const aiPanel = $('#ai-settings-panel');
+        if (aiPanel) {
+            aiPanel.classList.toggle('hidden', mode !== 'ai');
         }
+        const rangePanel = $('#ai-duration-range');
+        if (rangePanel) {
+            rangePanel.classList.toggle('hidden', getAiDurationMode() !== 'range');
+        }
+        const minInput = $('#ai-clip-min');
+        const maxInput = $('#ai-clip-max');
+        const rangeMode = getAiDurationMode() === 'range';
+        if (minInput) minInput.disabled = !rangeMode;
+        if (maxInput) maxInput.disabled = !rangeMode;
         updateAnalyzeButtonLabel();
     }
 
@@ -226,6 +252,11 @@
         if (!state.activeProjectId) return;
         const mode = getSelectedClipMode();
         const buffer = parseFloat($('#clip-buffer')?.value || '2');
+        const aiDurMode = getAiDurationMode();
+        let aiMin = parseFloat($('#ai-clip-min')?.value || '20');
+        let aiMax = parseFloat($('#ai-clip-max')?.value || '55');
+        if (aiMin > aiMax) [aiMin, aiMax] = [aiMax, aiMin];
+
         try {
             const resp = await fetch(`${API}/projects/${state.activeProjectId}/clip-settings`, {
                 method: 'PATCH',
@@ -233,10 +264,16 @@
                 body: JSON.stringify({
                     clip_selection_mode: mode,
                     clip_buffer_seconds: buffer,
+                    ai_clip_duration_mode: aiDurMode,
+                    ai_clip_min_seconds: aiMin,
+                    ai_clip_max_seconds: aiMax,
                 }),
             });
             if (resp.ok) {
                 state.activeVideoSource = await resp.json();
+            } else {
+                const err = await resp.json();
+                console.error('Ошибка сохранения:', err.detail);
             }
         } catch (e) {
             console.error('Ошибка сохранения настроек нарезки:', e);
@@ -329,6 +366,21 @@
                 debouncedSaveClipSettings();
             });
         }
+
+        $$('input[name="ai-duration-mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updateClipModeUI();
+                debouncedSaveClipSettings();
+            });
+        });
+
+        ['ai-clip-min', 'ai-clip-max'].forEach(id => {
+            const el = $(`#${id}`);
+            if (el) {
+                el.addEventListener('change', debouncedSaveClipSettings);
+                el.addEventListener('input', debouncedSaveClipSettings);
+            }
+        });
 
         // Кнопка анализа
         $('#btn-analyze').addEventListener('click', async () => {

@@ -52,6 +52,9 @@ class VideoSourceResponse(BaseModel):
     banner_url: Optional[str] = None
     clip_selection_mode: str = "heuristic"
     clip_buffer_seconds: float = 2.0
+    ai_clip_duration_mode: str = "auto"
+    ai_clip_min_seconds: float = 20.0
+    ai_clip_max_seconds: float = 55.0
 
     model_config = {"from_attributes": True}
 
@@ -60,6 +63,9 @@ class ClipSettingsUpdate(BaseModel):
     """Настройки режима нарезки клипов."""
     clip_selection_mode: Optional[str] = None  # manual, heuristic, ai
     clip_buffer_seconds: Optional[float] = Field(default=None, ge=0, le=10)
+    ai_clip_duration_mode: Optional[str] = None  # auto, range
+    ai_clip_min_seconds: Optional[float] = Field(default=None, ge=5, le=180)
+    ai_clip_max_seconds: Optional[float] = Field(default=None, ge=5, le=180)
 
 
 class BannerUpdate(BaseModel):

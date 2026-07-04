@@ -175,6 +175,9 @@ async def start_transcription(
 
     clip_mode = vs.clip_selection_mode or "heuristic"
     clip_buffer = vs.clip_buffer_seconds if vs.clip_buffer_seconds is not None else 2.0
+    ai_duration_mode = vs.ai_clip_duration_mode or "auto"
+    ai_min_dur = vs.ai_clip_min_seconds if vs.ai_clip_min_seconds is not None else 20.0
+    ai_max_dur = vs.ai_clip_max_seconds if vs.ai_clip_max_seconds is not None else 55.0
     video_duration = vs.duration or 0.0
 
     from backend.services.task_manager import task_manager
@@ -186,6 +189,9 @@ async def start_transcription(
         mode: str,
         buffer_sec: float,
         duration: float,
+        ai_dur_mode: str,
+        ai_min: float,
+        ai_max: float,
         _progress_callback=None,
     ):
         """Выполняется в фоновом потоке: транскрибация + нарезка + сохранение в БД."""
@@ -208,6 +214,9 @@ async def start_transcription(
                 full_text=result["full_text"],
                 video_duration=duration,
                 buffer_seconds=buffer_sec,
+                duration_mode=ai_dur_mode,
+                min_duration=ai_min,
+                max_duration=ai_max,
                 _progress_callback=_progress_callback,
             )
             if ai_result["clips"]:
@@ -284,6 +293,9 @@ async def start_transcription(
         clip_mode,
         clip_buffer,
         video_duration,
+        ai_duration_mode,
+        ai_min_dur,
+        ai_max_dur,
     )
 
     mode_labels = {

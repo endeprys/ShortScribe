@@ -105,6 +105,12 @@ CLIP_SELECTION_MODES = ("manual", "heuristic", "ai")
 DEFAULT_CLIP_SELECTION_MODE = "heuristic"
 DEFAULT_CLIP_BUFFER_SECONDS = 2.0  # ± секунд к таймингам ИИ
 
+# Длительность клипов в режиме ИИ-нарезки
+AI_CLIP_DURATION_MODES = ("auto", "range")
+DEFAULT_AI_CLIP_DURATION_MODE = "auto"
+AI_CLIP_ABS_MIN_SECONDS = 5
+AI_CLIP_ABS_MAX_SECONDS = 180
+
 # YouTube API
 YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 YOUTUBE_CATEGORY_ID = "22"  # People & Blogs
