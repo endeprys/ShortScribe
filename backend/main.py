@@ -94,32 +94,38 @@ async def root():
     return {"message": "Shorts Clipper API"}
 
 
-@app.get("/api/health")
-async def health():
-    """Проверка работоспособности."""
-    from backend.config import APP_VERSION
-    return {"status": "ok", "version": APP_VERSION}
+@app.get("/api/ollama-status")
+async def ollama_status():
+    """Проверить статус Ollama (не блокирует event loop)."""
+    import asyncio
+    from backend.services.ollama_check import check_ollama
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, check_ollama)
 
 
 @app.get("/api/check-update")
 async def check_update():
     """Проверить наличие обновлений на GitHub."""
+    import asyncio
     from backend.services.updater import check_update as _check
-    return _check()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _check)
 
 
 @app.post("/api/do-update")
 async def do_update():
     """Выполнить обновление (git pull)."""
+    import asyncio
     from backend.services.updater import do_update as _do
-    return _do()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _do)
 
 
-@app.get("/api/ollama-status")
-async def ollama_status():
-    """Проверить статус Ollama."""
-    from backend.services.ollama_check import check_ollama
-    return check_ollama()
+@app.get("/api/health")
+async def health():
+    """Проверка работоспособности."""
+    from backend.config import APP_VERSION
+    return {"status": "ok", "version": APP_VERSION}
 
 
 @app.get("/api/tasks/{task_id}")
