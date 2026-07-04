@@ -452,33 +452,55 @@
 
     async function uploadVideo(file) {
         if (!state.activeProjectId) { alert('Сначала выберите проект'); return; }
+
         const progress = $('#video-progress');
+        const info = $('#video-info');
         progress.classList.remove('hidden');
         progress.value = 0;
+        info.classList.remove('hidden');
+        info.innerHTML = '⏳ Загружаю видео...';
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            const resp = await fetch(`${API}/projects/${state.activeProjectId}/upload-video`, {
-                method: 'POST',
-                body: formData,
+            const vs = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API}/projects/${state.activeProjectId}/upload-video`);
+
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round(e.loaded / e.total * 100);
+                        progress.value = pct;
+                        info.innerHTML = `⏳ Загружаю: ${pct}% (${fmtBytes(e.loaded)} / ${fmtBytes(e.total)})`;
+                    }
+                });
+
+                xhr.addEventListener('load', () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        info.innerHTML = '🔍 Анализирую видео...';
+                        resolve(JSON.parse(xhr.responseText));
+                    } else {
+                        try { reject(new Error(JSON.parse(xhr.responseText).detail || 'Ошибка загрузки')); }
+                        catch (_) { reject(new Error(`Ошибка ${xhr.status}`)); }
+                    }
+                });
+
+                xhr.addEventListener('error', () => reject(new Error('Сетевая ошибка')));
+                xhr.send(formData);
             });
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || 'Ошибка загрузки');
-            }
-            const vs = await resp.json();
+
             state.activeVideoSource = vs;
             if (vs) loadOverlaySettingsFromVideoSource(vs);
+            info.innerHTML = `✅ <b>${escHtml(vs.filename)}</b> · ${fmtDuration(vs.duration)} · ${vs.width}×${vs.height}`;
             await loadProjects();
             selectProject(state.activeProjectId);
         } catch (e) {
-            alert('Ошибка: ' + e.message);
-        } finally {
+            info.innerHTML = `❌ ${e.message}`;
             progress.classList.add('hidden');
         }
     }
+
 
     async function uploadBanner(file) {
         if (!state.activeProjectId) return;
@@ -1643,6 +1665,14 @@
         const s = Math.floor(seconds % 60);
         if (m > 0) return `${m}м ${s}с`;
         return `${s}с`;
+    }
+
+    function fmtBytes(bytes) {
+        if (!bytes) return '0 B';
+        const u = ['B', 'KB', 'MB', 'GB'];
+        let i = 0;
+        while (bytes >= 1024 && i < u.length - 1) { bytes /= 1024; i++; }
+        return `${bytes.toFixed(i > 0 ? 1 : 0)} ${u[i]}`;
     }
 
     function escHtml(str) {
