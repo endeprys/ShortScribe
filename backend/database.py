@@ -19,6 +19,40 @@ async def init_db():
     """Создать все таблицы (вызывается при старте приложения)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate_video_source_columns)
+
+
+def _migrate_video_source_columns(conn):
+    """Добавляет новые колонки в video_sources (SQLite без Alembic)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(conn)
+    if "video_sources" not in inspector.get_table_names():
+        return
+
+    existing = {col["name"] for col in inspector.get_columns("video_sources")}
+    migrations = [
+        ("banner_x", "REAL"),
+        ("banner_y", "REAL"),
+        ("banner_scale", "REAL DEFAULT 0.9"),
+        ("banner_opacity", "REAL DEFAULT 0.85"),
+        ("subtitles_enabled", "BOOLEAN DEFAULT 1"),
+        ("subtitle_font", "VARCHAR(64) DEFAULT 'Arial'"),
+        ("subtitle_font_size", "INTEGER DEFAULT 52"),
+        ("subtitle_color", "VARCHAR(32) DEFAULT 'white'"),
+        ("subtitle_stroke_color", "VARCHAR(32) DEFAULT 'black'"),
+        ("subtitle_stroke_width", "INTEGER DEFAULT 3"),
+        ("subtitle_x", "REAL"),
+        ("subtitle_y", "REAL"),
+        ("clip_selection_mode", "VARCHAR(16) DEFAULT 'heuristic'"),
+        ("clip_buffer_seconds", "REAL DEFAULT 2.0"),
+        ("ai_clip_duration_mode", "VARCHAR(16) DEFAULT 'auto'"),
+        ("ai_clip_min_seconds", "REAL DEFAULT 20.0"),
+        ("ai_clip_max_seconds", "REAL DEFAULT 55.0"),
+    ]
+    for col_name, col_type in migrations:
+        if col_name not in existing:
+            conn.execute(text(f"ALTER TABLE video_sources ADD COLUMN {col_name} {col_type}"))
 
 
 async def get_session() -> AsyncSession:

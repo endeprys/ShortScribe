@@ -35,13 +35,62 @@ class VideoSourceResponse(BaseModel):
     fps: Optional[float] = None
     banner_path: Optional[str] = None
     banner_position: str = "bottom"
+    banner_x: Optional[float] = None
+    banner_y: Optional[float] = None
+    banner_scale: float = 0.9
+    banner_opacity: float = 0.85
+    subtitles_enabled: bool = True
+    subtitle_font: str = "Arial"
+    subtitle_font_size: int = 52
+    subtitle_color: str = "white"
+    subtitle_stroke_color: str = "black"
+    subtitle_stroke_width: int = 3
+    subtitle_x: Optional[float] = None
+    subtitle_y: Optional[float] = None
     has_transcription: bool = False
+    source_video_url: Optional[str] = None
+    banner_url: Optional[str] = None
+    clip_selection_mode: str = "heuristic"
+    clip_buffer_seconds: float = 2.0
+    ai_clip_duration_mode: str = "auto"
+    ai_clip_min_seconds: float = 20.0
+    ai_clip_max_seconds: float = 55.0
 
     model_config = {"from_attributes": True}
 
 
+class ClipSettingsUpdate(BaseModel):
+    """Настройки режима нарезки клипов."""
+    clip_selection_mode: Optional[str] = None  # manual, heuristic, ai
+    clip_buffer_seconds: Optional[float] = Field(default=None, ge=0, le=10)
+    ai_clip_duration_mode: Optional[str] = None  # auto, range
+    ai_clip_min_seconds: Optional[float] = Field(default=None, ge=5, le=180)
+    ai_clip_max_seconds: Optional[float] = Field(default=None, ge=5, le=180)
+
+
 class BannerUpdate(BaseModel):
-    position: str = "bottom"  # top, center, bottom
+    position: Optional[str] = None  # top, center, bottom
+    x: Optional[float] = None
+    y: Optional[float] = None
+    scale: Optional[float] = Field(default=None, ge=0.1, le=1.0)
+    opacity: Optional[float] = Field(default=None, ge=0.1, le=1.0)
+
+
+class SubtitleSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    font: Optional[str] = None
+    font_size: Optional[int] = Field(default=None, ge=16, le=120)
+    color: Optional[str] = None
+    stroke_color: Optional[str] = None
+    stroke_width: Optional[int] = Field(default=None, ge=0, le=10)
+    x: Optional[float] = None
+    y: Optional[float] = None
+
+
+class OverlaySettingsUpdate(BaseModel):
+    """Обновление всех настроек оверлеев одним запросом (для предпросмотра)."""
+    banner: Optional[BannerUpdate] = None
+    subtitles: Optional[SubtitleSettingsUpdate] = None
 
 
 # ── Clip ──

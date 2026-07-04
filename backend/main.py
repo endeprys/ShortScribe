@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
 from backend.routers import projects, processing, publishing
 from backend.services.task_manager import task_manager
-from backend.config import APP_VERSION
+from backend.config import APP_VERSION, UPLOADS_DIR
 
 
 @asynccontextmanager
@@ -73,6 +73,10 @@ frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if frontend_dir.exists():
     app.mount("/css", StaticFiles(directory=str(frontend_dir / "css")), name="css")
     app.mount("/js", StaticFiles(directory=str(frontend_dir / "js")), name="js")
+
+# Отдача загруженных исходников (видео, баннеры)
+if UPLOADS_DIR.exists():
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Отдача обработанных видео
 output_dir = Path(__file__).resolve().parent / "output"

@@ -100,6 +100,68 @@
                         </div>
                     </div>
 
+                    <!-- Режим нарезки клипов -->
+                    <div id="clip-mode-panel" class="hidden mb-4">
+                        <label class="text-sm text-gray-400 block mb-2">Режим нарезки клипов:</label>
+                        <div class="space-y-2">
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="manual" class="mt-0.5">
+                                <div>
+                                    <span class="text-sm font-medium">✋ Вручную</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Whisper делает транскрипт — вы сами выделяете фрагменты в редакторе</p>
+                                </div>
+                            </label>
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="heuristic" class="mt-0.5" checked>
+                                <div>
+                                    <span class="text-sm font-medium">⚡ Авто по таймингам</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Быстрая нарезка по паузам и длине (20–55 сек), как сейчас</p>
+                                </div>
+                            </label>
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="ai" class="mt-0.5">
+                                <div>
+                                    <span class="text-sm font-medium">🤖 ИИ-нарезка (качественно)</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Whisper → Ollama находит интересные логически завершённые фрагменты</p>
+                                </div>
+                            </label>
+                        </div>
+                        <div id="ai-settings-panel" class="hidden mt-3 pl-1 space-y-3 border-t border-gray-800 pt-3">
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-2">Длительность клипа (ИИ):</label>
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                        <input type="radio" name="ai-duration-mode" value="auto" checked class="rounded-full">
+                                        Автоматически — ИИ сам подбирает оптимальную длину
+                                    </label>
+                                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                                        <input type="radio" name="ai-duration-mode" value="range" class="rounded-full">
+                                        Задать диапазон в секундах
+                                    </label>
+                                </div>
+                                <div id="ai-duration-range" class="hidden grid grid-cols-2 gap-2 mt-2">
+                                    <div>
+                                        <label class="text-xs text-gray-500">От (сек)</label>
+                                        <input type="number" id="ai-clip-min" min="5" max="180" value="20"
+                                            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm mt-1">
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500">До (сек)</label>
+                                        <input type="number" id="ai-clip-max" min="5" max="180" value="55"
+                                            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm mt-1">
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400">
+                                    Буфер ± <span id="clip-buffer-val">2</span> сек к таймингам ИИ
+                                </label>
+                                <input type="range" id="clip-buffer" min="0" max="5" step="0.5" value="2" class="w-full mt-1">
+                                <p class="text-xs text-gray-600 mt-1">Чтобы повествование не начиналось резко и не обрывалось моментально</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Кнопка запуска анализа -->
                     <button id="btn-analyze" class="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed py-3 rounded-xl font-semibold transition hidden">
                         🔍 Запустить анализ речи
@@ -126,12 +188,84 @@
                 <p>Выберите проект на вкладке «Загрузка»<br>и запустите анализ речи, чтобы начать нарезку</p>
             </div>
             <div id="workspace-content" class="hidden">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
                     <!-- Левая панель: транскрипт -->
                     <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
                         <h3 class="font-bold mb-3">📝 Транскрипт</h3>
-                        <div id="transcript-text" class="text-sm text-gray-300 max-h-[70vh] overflow-y-auto space-y-2"></div>
+                        <div id="transcript-text" class="text-sm text-gray-300 max-h-[50vh] xl:max-h-[70vh] overflow-y-auto space-y-2"></div>
                     </div>
+
+                    <!-- Центральная панель: предпросмотр и настройки -->
+                    <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                        <h3 class="font-bold mb-3">👁 Предпросмотр оверлеев</h3>
+                        <p id="preview-clip-hint" class="text-xs text-gray-500 mb-2">Выберите клип для предпросмотра</p>
+
+                        <div id="preview-stage" class="preview-stage mx-auto mb-4">
+                            <video id="preview-video" class="preview-video" muted playsinline></video>
+                            <img id="preview-banner" class="preview-overlay preview-banner hidden" alt="Баннер" draggable="false">
+                            <div id="preview-subtitle" class="preview-overlay preview-subtitle hidden">Пример субтитров</div>
+                        </div>
+
+                        <!-- Настройки субтитров -->
+                        <div class="border-t border-gray-800 pt-4 mb-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="text-sm font-semibold text-brand-300">📝 Субтитры</h4>
+                                <label class="flex items-center gap-2 text-xs text-gray-400">
+                                    <input type="checkbox" id="sub-enabled" checked class="rounded"> Включить
+                                </label>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <label class="text-gray-500">Шрифт</label>
+                                    <select id="sub-font" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 mt-1">
+                                        <option>Arial</option>
+                                        <option>Impact</option>
+                                        <option>Verdana</option>
+                                        <option>Georgia</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-gray-500">Размер: <span id="sub-size-val">52</span>px</label>
+                                    <input type="range" id="sub-size" min="20" max="100" value="52" class="w-full mt-1">
+                                </div>
+                                <div>
+                                    <label class="text-gray-500">Цвет текста</label>
+                                    <input type="color" id="sub-color" value="#ffffff" class="w-full h-8 bg-gray-800 border border-gray-700 rounded mt-1 cursor-pointer">
+                                </div>
+                                <div>
+                                    <label class="text-gray-500">Обводка</label>
+                                    <input type="color" id="sub-stroke-color" value="#000000" class="w-full h-8 bg-gray-800 border border-gray-700 rounded mt-1 cursor-pointer">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="text-gray-500">Толщина обводки: <span id="sub-stroke-val">3</span>px</label>
+                                    <input type="range" id="sub-stroke-width" min="0" max="8" value="3" class="w-full mt-1">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-600 mt-2">💡 Перетащите субтитры мышкой на предпросмотре</p>
+                        </div>
+
+                        <!-- Настройки баннера -->
+                        <div class="border-t border-gray-800 pt-4">
+                            <h4 class="text-sm font-semibold text-purple-300 mb-3">🖼 Рекламный баннер</h4>
+                            <div class="flex gap-2 mb-3">
+                                <button data-pos="top" class="preview-pos-btn px-3 py-1.5 rounded-lg text-xs border border-gray-700 text-gray-400 hover:border-purple-500">Верх</button>
+                                <button data-pos="center" class="preview-pos-btn px-3 py-1.5 rounded-lg text-xs border border-gray-700 text-gray-400 hover:border-purple-500">Центр</button>
+                                <button data-pos="bottom" class="preview-pos-btn px-3 py-1.5 rounded-lg text-xs border border-purple-600 bg-purple-600/20 text-purple-300">Низ</button>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-xs mb-2">
+                                <div>
+                                    <label class="text-gray-500">Масштаб: <span id="banner-scale-val">90</span>%</label>
+                                    <input type="range" id="banner-scale" min="30" max="100" value="90" class="w-full mt-1">
+                                </div>
+                                <div>
+                                    <label class="text-gray-500">Прозрачность: <span id="banner-opacity-val">85</span>%</label>
+                                    <input type="range" id="banner-opacity" min="20" max="100" value="85" class="w-full mt-1">
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-600">💡 Перетащите баннер мышкой на предпросмотре</p>
+                        </div>
+                    </div>
+
                     <!-- Правая панель: клипы -->
                     <div>
                         <div class="flex items-center justify-between mb-4">
@@ -140,7 +274,11 @@
                                 ⚡ Обработать выбранные
                             </button>
                         </div>
-                        <div id="clips-list" class="space-y-3 max-h-[60vh] overflow-y-auto"></div>
+                        <label id="select-all-row" class="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-900 border border-gray-800 rounded-lg cursor-pointer hover:border-brand-500 transition hidden">
+                            <input type="checkbox" id="select-all-clips" class="rounded">
+                            <span class="text-sm text-gray-300">Выбрать все</span>
+                        </label>
+                        <div id="clips-list" class="space-y-3 max-h-[50vh] xl:max-h-[60vh] overflow-y-auto"></div>
                     </div>
                 </div>
             </div>
@@ -152,6 +290,10 @@
                 <!-- Список готовых клипов -->
                 <div class="lg:col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-5">
                     <h2 class="text-xl font-bold mb-4">🚀 Очередь публикации</h2>
+                    <label id="publish-select-all-row" class="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg cursor-pointer hidden">
+                        <input type="checkbox" id="publish-select-all" class="rounded">
+                        <span class="text-sm text-gray-300">Выбрать все</span>
+                    </label>
                     <div id="publishing-list" class="space-y-3 max-h-[60vh] overflow-y-auto">
                         <p class="text-gray-500 text-sm">Обработанные клипы появятся здесь</p>
                     </div>

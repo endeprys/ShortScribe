@@ -2,6 +2,7 @@
 Роутер обработки: создание клипов, запуск видеопроцессинга, получение статуса.
 """
 import json
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -166,51 +167,121 @@ async def start_transcription(
 ):
     """
     Запустить распознавание речи через faster-whisper в фоновом потоке.
+    Режим нарезки берётся из настроек VideoSource (manual / heuristic / ai).
     Возвращает task_id для отслеживания прогресса через GET /api/tasks/{task_id}.
     """
     await _get_project(project_id, session)
     vs = await _get_video_source(project_id, session)
 
+    clip_mode = vs.clip_selection_mode or "heuristic"
+    clip_buffer = vs.clip_buffer_seconds if vs.clip_buffer_seconds is not None else 2.0
+    ai_duration_mode = vs.ai_clip_duration_mode or "auto"
+    ai_min_dur = vs.ai_clip_min_seconds if vs.ai_clip_min_seconds is not None else 20.0
+    ai_max_dur = vs.ai_clip_max_seconds if vs.ai_clip_max_seconds is not None else 55.0
+    video_duration = vs.duration or 0.0
+
     from backend.services.task_manager import task_manager
     from backend.services.transcriber import transcribe_audio as _transcribe
 
-    def _run_transcribe_and_save(video_path: str, pid: str, _progress_callback=None):
-        """Выполняется в фоновом потоке: транскрибация + сохранение в БД."""
+    def _run_transcribe_and_save(
+        video_path: str,
+        pid: str,
+        mode: str,
+        buffer_sec: float,
+        duration: float,
+        ai_dur_mode: str,
+        ai_min: float,
+        ai_max: float,
+        _progress_callback=None,
+    ):
+        """Выполняется в фоновом потоке: транскрибация + нарезка + сохранение в БД."""
+        use_heuristic = mode == "heuristic"
         result = _transcribe(
             video_path,
+            generate_suggestions=use_heuristic,
             _progress_callback=_progress_callback,
         )
 
-        # Сохраняем в БД (синхронно, т.к. мы в отдельном потоке)
+        suggested_clips = []
+        ai_error = None
+
+        if mode == "ai":
+            from backend.services.clip_selector import find_clips_with_ai
+            from backend.services.transcriber import _suggest_shorts, TranscriptionSegment
+
+            ai_result = find_clips_with_ai(
+                segments=result["segments"],
+                full_text=result["full_text"],
+                video_duration=duration,
+                buffer_seconds=buffer_sec,
+                duration_mode=ai_dur_mode,
+                min_duration=ai_min,
+                max_duration=ai_max,
+                _progress_callback=_progress_callback,
+            )
+            if ai_result["clips"]:
+                suggested_clips = ai_result["clips"]
+            else:
+                ai_error = ai_result.get("error")
+                if _progress_callback:
+                    _progress_callback(92, "ИИ не нашёл клипы, использую авто-нарезку...")
+                segs = [
+                    TranscriptionSegment(
+                        start=s["start"], end=s["end"], text=s["text"],
+                        is_complete_sentence=s.get("is_complete_sentence", False),
+                    )
+                    for s in result["segments"]
+                ]
+                suggested_clips = _suggest_shorts(segs)
+        elif mode == "heuristic":
+            suggested_clips = result.get("suggested_clips", [])
+        # mode == "manual" → suggested_clips остаётся пустым
+
         import asyncio, json
         from backend.database import async_session
         from backend.models import VideoSource, Clip
-        from sqlalchemy import select
+        from sqlalchemy import select, delete
 
         async def _save():
             async with async_session() as s:
                 r = await s.execute(select(VideoSource).where(VideoSource.project_id == pid))
                 vs_db = r.scalar_one_or_none()
-                if vs_db:
-                    vs_db.transcription = json.dumps({
-                        "full_text": result["full_text"],
-                        "segments": result["segments"],
-                    }, ensure_ascii=False)
-                    # Создаём рекомендованные клипы
-                    for sug in result.get("suggested_clips", []):
-                        clip = Clip(
-                            project_id=pid,
-                            start_time=sug["start_time"],
-                            end_time=sug["end_time"],
-                            text_snippet=sug["text_snippet"],
-                            title=f"Shorts ({_fmt_time_short(sug['start_time'])})",
-                            is_suggested=True,
-                            include_banner=vs_db.banner_path is not None,
-                        )
-                        s.add(clip)
-                    await s.commit()
+                if not vs_db:
+                    return
+
+                vs_db.transcription = json.dumps({
+                    "full_text": result["full_text"],
+                    "segments": result["segments"],
+                }, ensure_ascii=False)
+
+                # Удаляем старые авто/ИИ-клипы перед созданием новых
+                await s.execute(
+                    delete(Clip).where(
+                        Clip.project_id == pid,
+                        Clip.is_suggested.is_(True),
+                    )
+                )
+
+                for sug in suggested_clips:
+                    title = sug.get("title") or f"Shorts ({_fmt_time_short(sug['start_time'])})"
+                    clip = Clip(
+                        project_id=pid,
+                        start_time=sug["start_time"],
+                        end_time=sug["end_time"],
+                        text_snippet=sug.get("text_snippet", ""),
+                        title=title,
+                        is_suggested=True,
+                        include_banner=vs_db.banner_path is not None,
+                    )
+                    s.add(clip)
+                await s.commit()
 
         asyncio.run(_save())
+
+        result["suggested_clips"] = suggested_clips
+        result["clip_selection_mode"] = mode
+        if ai_error:
+            result["ai_error"] = ai_error
         return result
 
     task_id = task_manager.submit(
@@ -219,12 +290,28 @@ async def start_transcription(
         _run_transcribe_and_save,
         vs.filepath,
         project_id,
+        clip_mode,
+        clip_buffer,
+        video_duration,
+        ai_duration_mode,
+        ai_min_dur,
+        ai_max_dur,
     )
+
+    mode_labels = {
+        "manual": "только транскрипт",
+        "heuristic": "авто-нарезка",
+        "ai": "ИИ-нарезка",
+    }
 
     return {
         "ok": True,
         "task_id": task_id,
-        "message": "Транскрибация запущена в фоне. Отслеживайте прогресс через /api/tasks/{task_id}.",
+        "clip_selection_mode": clip_mode,
+        "message": (
+            f"Транскрибация запущена ({mode_labels.get(clip_mode, clip_mode)}). "
+            "Отслеживайте прогресс через /api/tasks/{task_id}."
+        ),
     }
 
 
@@ -295,7 +382,7 @@ async def process_clips(
             "include_banner": clip.include_banner,
         })
 
-    def _run_process(video_path: str, banner_path: str | None, banner_pos: str,
+    def _run_process(video_path: str, banner_path: str | None, vs_settings: dict,
                      pid: str, specs: list, _progress_callback=None):
         """Выполняется в фоне: обработка всех клипов."""
         import asyncio, json
@@ -304,8 +391,8 @@ async def process_clips(
         from backend.models import Clip, VideoSource
         from sqlalchemy import select
 
-        # Загружаем транскрипцию один раз
         transcription_segments = None
+
         async def _load_transcription():
             nonlocal transcription_segments
             async with async_session() as s:
@@ -314,6 +401,7 @@ async def process_clips(
                 if vs_db and vs_db.transcription:
                     data = json.loads(vs_db.transcription)
                     transcription_segments = data.get("segments", [])
+
         asyncio.run(_load_transcription())
 
         results = []
@@ -325,9 +413,8 @@ async def process_clips(
                 _progress_callback(base_pct, f"Клип {i+1}/{total}...")
 
             try:
-                # Фильтруем сегменты субтитров для этого клипа
                 clip_subtitles = None
-                if transcription_segments:
+                if vs_settings.get("subtitles_enabled", True) and transcription_segments:
                     clip_subtitles = [
                         seg for seg in transcription_segments
                         if seg["end"] > spec["start_time"] and seg["start"] < spec["end_time"]
@@ -339,9 +426,21 @@ async def process_clips(
                     start_time=spec["start_time"],
                     end_time=spec["end_time"],
                     banner_path=banner_path if spec["include_banner"] else None,
-                    banner_position=banner_pos,
+                    banner_position=vs_settings.get("banner_position", "bottom"),
                     clip_id=spec["clip_id"],
                     subtitles_segments=clip_subtitles,
+                    banner_x=vs_settings.get("banner_x"),
+                    banner_y=vs_settings.get("banner_y"),
+                    banner_scale=vs_settings.get("banner_scale"),
+                    banner_opacity=vs_settings.get("banner_opacity"),
+                    subtitles_enabled=vs_settings.get("subtitles_enabled", True),
+                    subtitle_font=vs_settings.get("subtitle_font", "Arial"),
+                    subtitle_font_size=vs_settings.get("subtitle_font_size"),
+                    subtitle_color=vs_settings.get("subtitle_color"),
+                    subtitle_stroke_color=vs_settings.get("subtitle_stroke_color"),
+                    subtitle_stroke_width=vs_settings.get("subtitle_stroke_width"),
+                    subtitle_x=vs_settings.get("subtitle_x"),
+                    subtitle_y=vs_settings.get("subtitle_y"),
                 )
 
                 # Сохраняем в БД
@@ -388,13 +487,29 @@ async def process_clips(
 
         return {"results": results}
 
+    vs_settings = {
+        "banner_position": vs.banner_position or "bottom",
+        "banner_x": vs.banner_x,
+        "banner_y": vs.banner_y,
+        "banner_scale": vs.banner_scale if vs.banner_scale is not None else 0.9,
+        "banner_opacity": vs.banner_opacity if vs.banner_opacity is not None else 0.85,
+        "subtitles_enabled": vs.subtitles_enabled if vs.subtitles_enabled is not None else True,
+        "subtitle_font": vs.subtitle_font or "Arial",
+        "subtitle_font_size": vs.subtitle_font_size or 52,
+        "subtitle_color": vs.subtitle_color or "white",
+        "subtitle_stroke_color": vs.subtitle_stroke_color or "black",
+        "subtitle_stroke_width": vs.subtitle_stroke_width or 3,
+        "subtitle_x": vs.subtitle_x,
+        "subtitle_y": vs.subtitle_y,
+    }
+
     task_id = task_manager.submit(
         "process",
         project_id,
         _run_process,
         vs.filepath,
         vs.banner_path,
-        vs.banner_position,
+        vs_settings,
         project_id,
         clips_spec,
     )

@@ -49,6 +49,28 @@ class VideoSource(Base):
     fps: Mapped[float | None] = mapped_column(Float)             # кадров в секунду
     banner_path: Mapped[str | None] = mapped_column(String(1024))  # путь к баннеру
     banner_position: Mapped[str] = mapped_column(String(16), default="bottom")
+    banner_x: Mapped[float | None] = mapped_column(Float)          # X на холсте 1080×1920
+    banner_y: Mapped[float | None] = mapped_column(Float)          # Y на холсте 1080×1920
+    banner_scale: Mapped[float] = mapped_column(Float, default=0.9)
+    banner_opacity: Mapped[float] = mapped_column(Float, default=0.85)
+
+    # Настройки субтитров (координаты — холст 1080×1920)
+    subtitles_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    subtitle_font: Mapped[str] = mapped_column(String(64), default="Arial")
+    subtitle_font_size: Mapped[int] = mapped_column(Integer, default=52)
+    subtitle_color: Mapped[str] = mapped_column(String(32), default="white")
+    subtitle_stroke_color: Mapped[str] = mapped_column(String(32), default="black")
+    subtitle_stroke_width: Mapped[int] = mapped_column(Integer, default=3)
+    subtitle_x: Mapped[float | None] = mapped_column(Float)        # левый край текстового блока
+    subtitle_y: Mapped[float | None] = mapped_column(Float)          # верхний край текстового блока
+
+    # Режим нарезки клипов: manual | heuristic | ai
+    clip_selection_mode: Mapped[str] = mapped_column(String(16), default="heuristic")
+    clip_buffer_seconds: Mapped[float] = mapped_column(Float, default=2.0)
+    ai_clip_duration_mode: Mapped[str] = mapped_column(String(16), default="auto")  # auto | range
+    ai_clip_min_seconds: Mapped[float] = mapped_column(Float, default=20.0)
+    ai_clip_max_seconds: Mapped[float] = mapped_column(Float, default=55.0)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Транскрипция (JSON-строка с таймкодами)
