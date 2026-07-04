@@ -127,7 +127,7 @@
                 </div>
                 <div class="text-right">
                     <span class="text-xs text-gray-500">${p.clips_count} клипов</span>
-                    <button class="del-proj-btn ml-2 text-red-400 hover:text-red-300 text-xs opacity-0 group-hover:opacity-100" data-id="${p.id}" title="Удалить">✕</button>
+                    <button class="del-proj-btn ml-2 text-red-400 hover:text-red-300 hover:bg-red-400/10 text-xs px-2 py-1 rounded transition" data-id="${p.id}" title="Удалить">✕</button>
                 </div>
             </div>
         </div>`;
