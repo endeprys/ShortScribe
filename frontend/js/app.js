@@ -161,7 +161,9 @@
             $('#video-info').innerHTML = `✅ <b>${escHtml(vs.filename)}</b> · ${fmtDuration(vs.duration)} · ${vs.width}×${vs.height}`;
             $('#banner-dropzone').classList.remove('hidden');
             $('#banner-pos-panel').classList.remove('hidden');
+            $('#clip-mode-panel').classList.remove('hidden');
             $('#btn-analyze').classList.remove('hidden');
+            applyClipSettingsToUI(vs);
 
             if (vs.banner_path) {
                 $('#banner-info').classList.remove('hidden');
@@ -171,8 +173,79 @@
             $('#video-info').classList.add('hidden');
             $('#banner-dropzone').classList.add('hidden');
             $('#banner-pos-panel').classList.add('hidden');
+            $('#clip-mode-panel').classList.add('hidden');
             $('#btn-analyze').classList.add('hidden');
         }
+    }
+
+    function getSelectedClipMode() {
+        const checked = document.querySelector('input[name="clip-mode"]:checked');
+        return checked ? checked.value : 'heuristic';
+    }
+
+    function applyClipSettingsToUI(vs) {
+        const mode = vs?.clip_selection_mode || 'heuristic';
+        const buffer = vs?.clip_buffer_seconds ?? 2;
+
+        $$('input[name="clip-mode"]').forEach(r => {
+            r.checked = r.value === mode;
+        });
+
+        const bufferInput = $('#clip-buffer');
+        const bufferVal = $('#clip-buffer-val');
+        if (bufferInput) bufferInput.value = buffer;
+        if (bufferVal) bufferVal.textContent = buffer;
+
+        updateClipModeUI();
+        updateAnalyzeButtonLabel();
+    }
+
+    function updateClipModeUI() {
+        const mode = getSelectedClipMode();
+        const bufferPanel = $('#ai-buffer-panel');
+        if (bufferPanel) {
+            bufferPanel.classList.toggle('hidden', mode !== 'ai');
+        }
+        updateAnalyzeButtonLabel();
+    }
+
+    function updateAnalyzeButtonLabel() {
+        const btn = $('#btn-analyze');
+        if (!btn || btn.disabled) return;
+        const labels = {
+            manual: '🔍 Распознать речь (без нарезки)',
+            heuristic: '🔍 Анализ + авто-нарезка',
+            ai: '🤖 Анализ + ИИ-нарезка',
+        };
+        btn.textContent = labels[getSelectedClipMode()] || labels.heuristic;
+    }
+
+    let saveClipSettingsTimer = null;
+
+    async function saveClipSettings() {
+        if (!state.activeProjectId) return;
+        const mode = getSelectedClipMode();
+        const buffer = parseFloat($('#clip-buffer')?.value || '2');
+        try {
+            const resp = await fetch(`${API}/projects/${state.activeProjectId}/clip-settings`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clip_selection_mode: mode,
+                    clip_buffer_seconds: buffer,
+                }),
+            });
+            if (resp.ok) {
+                state.activeVideoSource = await resp.json();
+            }
+        } catch (e) {
+            console.error('Ошибка сохранения настроек нарезки:', e);
+        }
+    }
+
+    function debouncedSaveClipSettings() {
+        if (saveClipSettingsTimer) clearTimeout(saveClipSettingsTimer);
+        saveClipSettingsTimer = setTimeout(saveClipSettings, 300);
     }
 
     function bindDashboard() {
@@ -240,11 +313,41 @@
             });
         });
 
+        // Режим нарезки клипов
+        $$('input[name="clip-mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updateClipModeUI();
+                debouncedSaveClipSettings();
+            });
+        });
+
+        const clipBuffer = $('#clip-buffer');
+        if (clipBuffer) {
+            clipBuffer.addEventListener('input', () => {
+                const val = $('#clip-buffer-val');
+                if (val) val.textContent = clipBuffer.value;
+                debouncedSaveClipSettings();
+            });
+        }
+
         // Кнопка анализа
         $('#btn-analyze').addEventListener('click', async () => {
             if (!state.activeProjectId) return;
-            $('#btn-analyze').disabled = true;
-            $('#btn-analyze').textContent = '⏳ Запускаю...';
+            await saveClipSettings();
+
+            const mode = getSelectedClipMode();
+            if (mode === 'ai') {
+                const ollamaResp = await fetch(`${API}/ollama-status`);
+                const ollama = await ollamaResp.json();
+                if (!ollama.running) {
+                    alert('Для ИИ-нарезки нужен Ollama.\n\nУстановите: https://ollama.com/download\nЗапустите: ollama serve\nЗатем: ollama pull qwen2.5:7b');
+                    return;
+                }
+            }
+
+            const btn = $('#btn-analyze');
+            btn.disabled = true;
+            btn.textContent = '⏳ Запускаю...';
             try {
                 const resp = await fetch(`${API}/projects/${state.activeProjectId}/transcribe`, { method: 'POST' });
                 if (!resp.ok) {
@@ -252,18 +355,19 @@
                     throw new Error(err.detail || 'Ошибка');
                 }
                 const data = await resp.json();
-                // Начинаем polling прогресса
-                showProgress('transcribe');
-                startTaskPolling(data.task_id, () => {
-                    // По завершении — переключаемся на workspace
+                showProgress('transcribe', mode);
+                startTaskPolling(data.task_id, (result) => {
+                    if (result?.ai_error) {
+                        console.warn('ИИ-нарезка:', result.ai_error);
+                    }
                     loadProjects();
                     switchTab('workspace');
                     loadClips();
                 });
             } catch (e) {
                 alert('Ошибка анализа: ' + e.message);
-                $('#btn-analyze').disabled = false;
-                $('#btn-analyze').textContent = '🔍 Запустить анализ речи';
+                btn.disabled = false;
+                updateAnalyzeButtonLabel();
             }
         });
     }
@@ -520,13 +624,15 @@
         const statusText = { pending: 'Ожидает', processing: 'В работе', done: 'Готов', error: 'Ошибка' }[c.status] || c.status;
         const selected = state.selectedClips.has(c.id) ? 'selected' : '';
         const isPreview = state.previewClipId === c.id ? 'ring-1 ring-purple-500/50' : '';
+        const suggestedBadge = c.is_suggested
+            ? `<span class="status-badge ai-suggested-badge ml-1">★ авто</span>` : '';
         return `
         <div class="clip-card ${selected} ${isPreview}" data-id="${c.id}">
             <div class="flex items-start gap-2">
                 <input type="checkbox" class="clip-checkbox mt-0.5" data-id="${c.id}" ${selected ? 'checked' : ''}>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center justify-between mb-2">
-                        <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}</span>
+                        <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}${suggestedBadge}</span>
                         <span class="status-badge ${statusClass}">${statusText}</span>
                     </div>
                     <div class="text-xs text-gray-500">
@@ -1102,10 +1208,19 @@
     // PROGRESS POLLING
     // ════════════════════════════════════════
 
-    function showProgress(type) {
+    function showProgress(type, clipMode) {
         const panel = $('#progress-panel');
         panel.classList.remove('hidden');
-        $('#progress-type').textContent = type === 'transcribe' ? '🔊 Распознавание речи' : '🎬 Обработка видео';
+        if (type === 'transcribe') {
+            const labels = {
+                manual: '🔊 Распознавание речи',
+                heuristic: '🔊 Распознавание + авто-нарезка',
+                ai: '🤖 Распознавание + ИИ-анализ',
+            };
+            $('#progress-type').textContent = labels[clipMode] || labels.heuristic;
+        } else {
+            $('#progress-type').textContent = '🎬 Обработка видео';
+        }
         $('#progress-pct').textContent = '0%';
         $('#progress-bar').style.width = '0%';
         $('#progress-msg').textContent = 'Запуск...';
@@ -1132,12 +1247,12 @@
                 if (task.status === 'done') {
                     hideProgress();
                     $('#btn-analyze').disabled = false;
-                    $('#btn-analyze').textContent = '🔍 Запустить анализ речи';
+                    updateAnalyzeButtonLabel();
                     if (onDone) onDone(task.result);
                 } else if (task.status === 'error') {
                     hideProgress();
                     $('#btn-analyze').disabled = false;
-                    $('#btn-analyze').textContent = '🔍 Запустить анализ речи';
+                    updateAnalyzeButtonLabel();
                     alert('Ошибка: ' + (task.error || 'Неизвестная ошибка'));
                 }
             } catch (e) {

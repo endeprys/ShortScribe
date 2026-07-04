@@ -100,6 +100,11 @@ WHISPER_COMPUTE_TYPE = "int8"    # float16, int8 (int8 — быстрее на C
 SHORTS_MIN_DURATION = 20
 SHORTS_MAX_DURATION = 55
 
+# Режимы автоматической нарезки клипов после транскрипции
+CLIP_SELECTION_MODES = ("manual", "heuristic", "ai")
+DEFAULT_CLIP_SELECTION_MODE = "heuristic"
+DEFAULT_CLIP_BUFFER_SECONDS = 2.0  # ± секунд к таймингам ИИ
+
 # YouTube API
 YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 YOUTUBE_CATEGORY_ID = "22"  # People & Blogs

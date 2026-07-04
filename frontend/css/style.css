@@ -107,3 +107,11 @@ progress::-moz-progress-bar { background-color: #3b82f6; border-radius: 999px; }
     flex-shrink: 0;
     cursor: pointer;
 }
+.clip-mode-option:has(input:checked) {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.08);
+}
+.ai-suggested-badge {
+    background: #4c1d95;
+    color: #c4b5fd;
+}

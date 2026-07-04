@@ -14,11 +14,11 @@ from backend.database import get_session
 from backend.models import Project, VideoSource, Clip
 from backend.schemas import (
     ProjectCreate, ProjectResponse, VideoSourceResponse, BannerUpdate,
-    SubtitleSettingsUpdate, OverlaySettingsUpdate,
+    SubtitleSettingsUpdate, OverlaySettingsUpdate, ClipSettingsUpdate,
 )
 from backend.config import (
     UPLOADS_DIR, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_IMAGE_EXTENSIONS,
-    MAX_UPLOAD_SIZE_MB, SUBTITLE_FONTS,
+    MAX_UPLOAD_SIZE_MB, SUBTITLE_FONTS, CLIP_SELECTION_MODES,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -276,6 +276,28 @@ async def update_overlay_settings(
     return _video_source_to_response(vs)
 
 
+@router.patch("/{project_id}/clip-settings", response_model=VideoSourceResponse)
+async def update_clip_settings(
+    project_id: str,
+    data: ClipSettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновить режим нарезки клипов (ручной / авто / ИИ)."""
+    vs = await _get_video_source_or_404(project_id, session)
+    if data.clip_selection_mode is not None:
+        if data.clip_selection_mode not in CLIP_SELECTION_MODES:
+            raise HTTPException(
+                400,
+                f"clip_selection_mode должен быть: {', '.join(CLIP_SELECTION_MODES)}",
+            )
+        vs.clip_selection_mode = data.clip_selection_mode
+    if data.clip_buffer_seconds is not None:
+        vs.clip_buffer_seconds = data.clip_buffer_seconds
+    await session.commit()
+    await session.refresh(vs)
+    return _video_source_to_response(vs)
+
+
 @router.get("/overlay-fonts")
 async def list_overlay_fonts():
     """Список доступных шрифтов для субтитров."""
@@ -382,4 +404,6 @@ def _video_source_to_response(vs: VideoSource) -> VideoSourceResponse:
         has_transcription=vs.transcription is not None,
         source_video_url=source_url,
         banner_url=banner_url,
+        clip_selection_mode=vs.clip_selection_mode or "heuristic",
+        clip_buffer_seconds=vs.clip_buffer_seconds if vs.clip_buffer_seconds is not None else 2.0,
     )

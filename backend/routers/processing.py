@@ -167,51 +167,112 @@ async def start_transcription(
 ):
     """
     Запустить распознавание речи через faster-whisper в фоновом потоке.
+    Режим нарезки берётся из настроек VideoSource (manual / heuristic / ai).
     Возвращает task_id для отслеживания прогресса через GET /api/tasks/{task_id}.
     """
     await _get_project(project_id, session)
     vs = await _get_video_source(project_id, session)
 
+    clip_mode = vs.clip_selection_mode or "heuristic"
+    clip_buffer = vs.clip_buffer_seconds if vs.clip_buffer_seconds is not None else 2.0
+    video_duration = vs.duration or 0.0
+
     from backend.services.task_manager import task_manager
     from backend.services.transcriber import transcribe_audio as _transcribe
 
-    def _run_transcribe_and_save(video_path: str, pid: str, _progress_callback=None):
-        """Выполняется в фоновом потоке: транскрибация + сохранение в БД."""
+    def _run_transcribe_and_save(
+        video_path: str,
+        pid: str,
+        mode: str,
+        buffer_sec: float,
+        duration: float,
+        _progress_callback=None,
+    ):
+        """Выполняется в фоновом потоке: транскрибация + нарезка + сохранение в БД."""
+        use_heuristic = mode == "heuristic"
         result = _transcribe(
             video_path,
+            generate_suggestions=use_heuristic,
             _progress_callback=_progress_callback,
         )
 
-        # Сохраняем в БД (синхронно, т.к. мы в отдельном потоке)
+        suggested_clips = []
+        ai_error = None
+
+        if mode == "ai":
+            from backend.services.clip_selector import find_clips_with_ai
+            from backend.services.transcriber import _suggest_shorts, TranscriptionSegment
+
+            ai_result = find_clips_with_ai(
+                segments=result["segments"],
+                full_text=result["full_text"],
+                video_duration=duration,
+                buffer_seconds=buffer_sec,
+                _progress_callback=_progress_callback,
+            )
+            if ai_result["clips"]:
+                suggested_clips = ai_result["clips"]
+            else:
+                ai_error = ai_result.get("error")
+                if _progress_callback:
+                    _progress_callback(92, "ИИ не нашёл клипы, использую авто-нарезку...")
+                segs = [
+                    TranscriptionSegment(
+                        start=s["start"], end=s["end"], text=s["text"],
+                        is_complete_sentence=s.get("is_complete_sentence", False),
+                    )
+                    for s in result["segments"]
+                ]
+                suggested_clips = _suggest_shorts(segs)
+        elif mode == "heuristic":
+            suggested_clips = result.get("suggested_clips", [])
+        # mode == "manual" → suggested_clips остаётся пустым
+
         import asyncio, json
         from backend.database import async_session
         from backend.models import VideoSource, Clip
-        from sqlalchemy import select
+        from sqlalchemy import select, delete
 
         async def _save():
             async with async_session() as s:
                 r = await s.execute(select(VideoSource).where(VideoSource.project_id == pid))
                 vs_db = r.scalar_one_or_none()
-                if vs_db:
-                    vs_db.transcription = json.dumps({
-                        "full_text": result["full_text"],
-                        "segments": result["segments"],
-                    }, ensure_ascii=False)
-                    # Создаём рекомендованные клипы
-                    for sug in result.get("suggested_clips", []):
-                        clip = Clip(
-                            project_id=pid,
-                            start_time=sug["start_time"],
-                            end_time=sug["end_time"],
-                            text_snippet=sug["text_snippet"],
-                            title=f"Shorts ({_fmt_time_short(sug['start_time'])})",
-                            is_suggested=True,
-                            include_banner=vs_db.banner_path is not None,
-                        )
-                        s.add(clip)
-                    await s.commit()
+                if not vs_db:
+                    return
+
+                vs_db.transcription = json.dumps({
+                    "full_text": result["full_text"],
+                    "segments": result["segments"],
+                }, ensure_ascii=False)
+
+                # Удаляем старые авто/ИИ-клипы перед созданием новых
+                await s.execute(
+                    delete(Clip).where(
+                        Clip.project_id == pid,
+                        Clip.is_suggested.is_(True),
+                    )
+                )
+
+                for sug in suggested_clips:
+                    title = sug.get("title") or f"Shorts ({_fmt_time_short(sug['start_time'])})"
+                    clip = Clip(
+                        project_id=pid,
+                        start_time=sug["start_time"],
+                        end_time=sug["end_time"],
+                        text_snippet=sug.get("text_snippet", ""),
+                        title=title,
+                        is_suggested=True,
+                        include_banner=vs_db.banner_path is not None,
+                    )
+                    s.add(clip)
+                await s.commit()
 
         asyncio.run(_save())
+
+        result["suggested_clips"] = suggested_clips
+        result["clip_selection_mode"] = mode
+        if ai_error:
+            result["ai_error"] = ai_error
         return result
 
     task_id = task_manager.submit(
@@ -220,12 +281,25 @@ async def start_transcription(
         _run_transcribe_and_save,
         vs.filepath,
         project_id,
+        clip_mode,
+        clip_buffer,
+        video_duration,
     )
+
+    mode_labels = {
+        "manual": "только транскрипт",
+        "heuristic": "авто-нарезка",
+        "ai": "ИИ-нарезка",
+    }
 
     return {
         "ok": True,
         "task_id": task_id,
-        "message": "Транскрибация запущена в фоне. Отслеживайте прогресс через /api/tasks/{task_id}.",
+        "clip_selection_mode": clip_mode,
+        "message": (
+            f"Транскрибация запущена ({mode_labels.get(clip_mode, clip_mode)}). "
+            "Отслеживайте прогресс через /api/tasks/{task_id}."
+        ),
     }
 
 

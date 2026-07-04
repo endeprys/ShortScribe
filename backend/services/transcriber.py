@@ -35,6 +35,7 @@ class TranscriptionResult:
 def transcribe_audio(
     video_path: str,
     model_name: Optional[str] = None,
+    generate_suggestions: bool = True,
     _progress_callback: Optional[callable] = None,
 ) -> dict:
     """
@@ -104,9 +105,9 @@ def transcribe_audio(
         full_text = " ".join(full_text_parts)
 
         if _progress_callback:
-            _progress_callback(85, "Ищу рекомендованные клипы...")
+            _progress_callback(85, "Ищу рекомендованные клипы..." if generate_suggestions else "Завершаю транскрипцию...")
 
-        suggested = _suggest_shorts(segments)
+        suggested = _suggest_shorts(segments) if generate_suggestions else []
 
         if _progress_callback:
             _progress_callback(95, "Сохраняю результаты...")

@@ -44,6 +44,8 @@ def _migrate_video_source_columns(conn):
         ("subtitle_stroke_width", "INTEGER DEFAULT 3"),
         ("subtitle_x", "REAL"),
         ("subtitle_y", "REAL"),
+        ("clip_selection_mode", "VARCHAR(16) DEFAULT 'heuristic'"),
+        ("clip_buffer_seconds", "REAL DEFAULT 2.0"),
     ]
     for col_name, col_type in migrations:
         if col_name not in existing:

@@ -100,6 +100,41 @@
                         </div>
                     </div>
 
+                    <!-- Режим нарезки клипов -->
+                    <div id="clip-mode-panel" class="hidden mb-4">
+                        <label class="text-sm text-gray-400 block mb-2">Режим нарезки клипов:</label>
+                        <div class="space-y-2">
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="manual" class="mt-0.5">
+                                <div>
+                                    <span class="text-sm font-medium">✋ Вручную</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Whisper делает транскрипт — вы сами выделяете фрагменты в редакторе</p>
+                                </div>
+                            </label>
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="heuristic" class="mt-0.5" checked>
+                                <div>
+                                    <span class="text-sm font-medium">⚡ Авто по таймингам</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Быстрая нарезка по паузам и длине (20–55 сек), как сейчас</p>
+                                </div>
+                            </label>
+                            <label class="clip-mode-option flex items-start gap-3 p-3 rounded-lg border border-gray-700 cursor-pointer hover:border-brand-500 transition">
+                                <input type="radio" name="clip-mode" value="ai" class="mt-0.5">
+                                <div>
+                                    <span class="text-sm font-medium">🤖 ИИ-нарезка (качественно)</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Whisper → Ollama находит интересные логически завершённые фрагменты</p>
+                                </div>
+                            </label>
+                        </div>
+                        <div id="ai-buffer-panel" class="hidden mt-3 pl-1">
+                            <label class="text-xs text-gray-400">
+                                Буфер ± <span id="clip-buffer-val">2</span> сек к таймингам ИИ
+                            </label>
+                            <input type="range" id="clip-buffer" min="0" max="5" step="0.5" value="2" class="w-full mt-1">
+                            <p class="text-xs text-gray-600 mt-1">Чтобы повествование не начиналось резко и не обрывалось моментально</p>
+                        </div>
+                    </div>
+
                     <!-- Кнопка запуска анализа -->
                     <button id="btn-analyze" class="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed py-3 rounded-xl font-semibold transition hidden">
                         🔍 Запустить анализ речи

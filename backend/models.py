@@ -64,6 +64,10 @@ class VideoSource(Base):
     subtitle_x: Mapped[float | None] = mapped_column(Float)        # левый край текстового блока
     subtitle_y: Mapped[float | None] = mapped_column(Float)          # верхний край текстового блока
 
+    # Режим нарезки клипов: manual | heuristic | ai
+    clip_selection_mode: Mapped[str] = mapped_column(String(16), default="heuristic")
+    clip_buffer_seconds: Mapped[float] = mapped_column(Float, default=2.0)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Транскрипция (JSON-строка с таймкодами)

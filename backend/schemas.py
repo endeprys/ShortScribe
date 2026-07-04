@@ -50,8 +50,16 @@ class VideoSourceResponse(BaseModel):
     has_transcription: bool = False
     source_video_url: Optional[str] = None
     banner_url: Optional[str] = None
+    clip_selection_mode: str = "heuristic"
+    clip_buffer_seconds: float = 2.0
 
     model_config = {"from_attributes": True}
+
+
+class ClipSettingsUpdate(BaseModel):
+    """Настройки режима нарезки клипов."""
+    clip_selection_mode: Optional[str] = None  # manual, heuristic, ai
+    clip_buffer_seconds: Optional[float] = Field(default=None, ge=0, le=10)
 
 
 class BannerUpdate(BaseModel):
