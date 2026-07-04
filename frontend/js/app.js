@@ -93,7 +93,16 @@
             } else {
                 list.innerHTML = state.projects.map(p => renderProjectCard(p)).join('');
                 list.querySelectorAll('.project-card').forEach(card => {
-                    card.addEventListener('click', () => selectProject(card.dataset.id));
+                    card.addEventListener('click', (e) => {
+                        if (e.target.closest('.del-proj-btn')) return; // не перехватываем клик по удалению
+                        selectProject(card.dataset.id);
+                    });
+                });
+                list.querySelectorAll('.del-proj-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deleteProject(btn.dataset.id);
+                    });
                 });
             }
         } catch (e) {
@@ -104,8 +113,9 @@
     function renderProjectCard(p) {
         const vs = p.video_source;
         const hasVideo = vs && vs.filename;
+        const active = p.id === state.activeProjectId ? 'border-brand-500 ring-1 ring-brand-500/30' : '';
         return `
-        <div class="project-card bg-gray-900 border border-gray-800 rounded-xl p-4 cursor-pointer hover:border-brand-500 transition ${p.id === state.activeProjectId ? 'border-brand-500 ring-1 ring-brand-500/30' : ''}"
+        <div class="project-card group bg-gray-900 border border-gray-800 rounded-xl p-4 cursor-pointer hover:border-brand-500 transition ${active}"
              data-id="${p.id}">
             <div class="flex items-center justify-between">
                 <div>
@@ -149,6 +159,22 @@
         }
 
         await loadProjects(); // обновляем клипы-каунт
+    }
+
+    async function deleteProject(id) {
+        if (!confirm('Удалить проект и все связанные файлы?')) return;
+        try {
+            await fetch(`${API}/projects/${id}`, { method: 'DELETE' });
+            if (state.activeProjectId === id) {
+                state.activeProjectId = null;
+                state.activeVideoSource = null;
+                state.clips = [];
+                $('#upload-panel').classList.add('hidden');
+            }
+            await loadProjects();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
     }
 
     function showUploadPanel(proj) {
