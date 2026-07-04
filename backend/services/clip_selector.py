@@ -151,9 +151,8 @@ def _build_prompt(
 - Логически завершённая мысль (история, совет, шутка, инсайт — не обрыв на полуслове)
 - Начало должно быть понятным без предыдущего контекста
 - Конец — на естественной паузе или завершении мысли
-- Фрагменты не должны сильно пересекаться
 
-СЕГМЕНТЫ ТРАНСКРИПЦИИ (индекс | время | текст):
+СЕГМЕНТЫ ТРАНСКРИПЦИИ
 {segments_block}
 
 ПОЛНЫЙ ТЕКСТ (сокращённо):
@@ -192,7 +191,6 @@ def _clips_from_ai_segments(
 ) -> list[dict]:
     """Преобразует ответ ИИ в клипы с таймкодами и буфером."""
     result = []
-    last_end = -1.0
     # Допуск на буфер при проверке длительности
     min_allowed = max(3.0, min_dur - buffer_seconds)
     max_allowed = max_dur + buffer_seconds * 2
@@ -218,8 +216,6 @@ def _clips_from_ai_segments(
             continue
         if duration > max_allowed:
             continue
-        if start_time < last_end - 5:
-            continue
 
         text_snippet = " ".join(
             segments[i]["text"] for i in range(start_idx, end_idx + 1)
@@ -237,7 +233,6 @@ def _clips_from_ai_segments(
             "reason": str(item.get("reason", "")).strip(),
             "duration": round(duration, 1),
         })
-        last_end = end_time
 
     return result
 
