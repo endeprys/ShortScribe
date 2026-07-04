@@ -2,6 +2,7 @@
 Роутер обработки: создание клипов, запуск видеопроцессинга, получение статуса.
 """
 import json
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -295,7 +296,7 @@ async def process_clips(
             "include_banner": clip.include_banner,
         })
 
-    def _run_process(video_path: str, banner_path: str | None, banner_pos: str,
+    def _run_process(video_path: str, banner_path: str | None, vs_settings: dict,
                      pid: str, specs: list, _progress_callback=None):
         """Выполняется в фоне: обработка всех клипов."""
         import asyncio, json
@@ -304,8 +305,8 @@ async def process_clips(
         from backend.models import Clip, VideoSource
         from sqlalchemy import select
 
-        # Загружаем транскрипцию один раз
         transcription_segments = None
+
         async def _load_transcription():
             nonlocal transcription_segments
             async with async_session() as s:
@@ -314,6 +315,7 @@ async def process_clips(
                 if vs_db and vs_db.transcription:
                     data = json.loads(vs_db.transcription)
                     transcription_segments = data.get("segments", [])
+
         asyncio.run(_load_transcription())
 
         results = []
@@ -325,9 +327,8 @@ async def process_clips(
                 _progress_callback(base_pct, f"Клип {i+1}/{total}...")
 
             try:
-                # Фильтруем сегменты субтитров для этого клипа
                 clip_subtitles = None
-                if transcription_segments:
+                if vs_settings.get("subtitles_enabled", True) and transcription_segments:
                     clip_subtitles = [
                         seg for seg in transcription_segments
                         if seg["end"] > spec["start_time"] and seg["start"] < spec["end_time"]
@@ -339,9 +340,21 @@ async def process_clips(
                     start_time=spec["start_time"],
                     end_time=spec["end_time"],
                     banner_path=banner_path if spec["include_banner"] else None,
-                    banner_position=banner_pos,
+                    banner_position=vs_settings.get("banner_position", "bottom"),
                     clip_id=spec["clip_id"],
                     subtitles_segments=clip_subtitles,
+                    banner_x=vs_settings.get("banner_x"),
+                    banner_y=vs_settings.get("banner_y"),
+                    banner_scale=vs_settings.get("banner_scale"),
+                    banner_opacity=vs_settings.get("banner_opacity"),
+                    subtitles_enabled=vs_settings.get("subtitles_enabled", True),
+                    subtitle_font=vs_settings.get("subtitle_font", "Arial"),
+                    subtitle_font_size=vs_settings.get("subtitle_font_size"),
+                    subtitle_color=vs_settings.get("subtitle_color"),
+                    subtitle_stroke_color=vs_settings.get("subtitle_stroke_color"),
+                    subtitle_stroke_width=vs_settings.get("subtitle_stroke_width"),
+                    subtitle_x=vs_settings.get("subtitle_x"),
+                    subtitle_y=vs_settings.get("subtitle_y"),
                 )
 
                 # Сохраняем в БД
@@ -388,13 +401,29 @@ async def process_clips(
 
         return {"results": results}
 
+    vs_settings = {
+        "banner_position": vs.banner_position or "bottom",
+        "banner_x": vs.banner_x,
+        "banner_y": vs.banner_y,
+        "banner_scale": vs.banner_scale if vs.banner_scale is not None else 0.9,
+        "banner_opacity": vs.banner_opacity if vs.banner_opacity is not None else 0.85,
+        "subtitles_enabled": vs.subtitles_enabled if vs.subtitles_enabled is not None else True,
+        "subtitle_font": vs.subtitle_font or "Arial",
+        "subtitle_font_size": vs.subtitle_font_size or 52,
+        "subtitle_color": vs.subtitle_color or "white",
+        "subtitle_stroke_color": vs.subtitle_stroke_color or "black",
+        "subtitle_stroke_width": vs.subtitle_stroke_width or 3,
+        "subtitle_x": vs.subtitle_x,
+        "subtitle_y": vs.subtitle_y,
+    }
+
     task_id = task_manager.submit(
         "process",
         project_id,
         _run_process,
         vs.filepath,
         vs.banner_path,
-        vs.banner_position,
+        vs_settings,
         project_id,
         clips_spec,
     )

@@ -14,10 +14,11 @@ from backend.database import get_session
 from backend.models import Project, VideoSource, Clip
 from backend.schemas import (
     ProjectCreate, ProjectResponse, VideoSourceResponse, BannerUpdate,
+    SubtitleSettingsUpdate, OverlaySettingsUpdate,
 )
 from backend.config import (
     UPLOADS_DIR, ALLOWED_VIDEO_EXTENSIONS, ALLOWED_IMAGE_EXTENSIONS,
-    MAX_UPLOAD_SIZE_MB,
+    MAX_UPLOAD_SIZE_MB, SUBTITLE_FONTS,
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -174,14 +175,111 @@ async def update_banner_settings(
     data: BannerUpdate,
     session: AsyncSession = Depends(get_session),
 ):
-    """Обновить настройки баннера (позиция)."""
+    """Обновить настройки баннера (позиция, координаты, масштаб, прозрачность)."""
     vs = await _get_video_source_or_404(project_id, session)
-    if data.position not in ("top", "center", "bottom"):
-        raise HTTPException(400, "position должен быть: top, center, bottom")
-    vs.banner_position = data.position
+    fields_set = data.model_fields_set
+    if data.position is not None:
+        if data.position not in ("top", "center", "bottom"):
+            raise HTTPException(400, "position должен быть: top, center, bottom")
+        vs.banner_position = data.position
+    if "x" in fields_set:
+        vs.banner_x = data.x
+    if "y" in fields_set:
+        vs.banner_y = data.y
+    if data.scale is not None:
+        vs.banner_scale = data.scale
+    if data.opacity is not None:
+        vs.banner_opacity = data.opacity
     await session.commit()
     await session.refresh(vs)
     return _video_source_to_response(vs)
+
+
+@router.patch("/{project_id}/subtitle-settings", response_model=VideoSourceResponse)
+async def update_subtitle_settings(
+    project_id: str,
+    data: SubtitleSettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновить настройки субтитров."""
+    vs = await _get_video_source_or_404(project_id, session)
+    fields_set = data.model_fields_set
+    if data.enabled is not None:
+        vs.subtitles_enabled = data.enabled
+    if data.font is not None:
+        if data.font not in SUBTITLE_FONTS:
+            raise HTTPException(400, f"Шрифт должен быть одним из: {SUBTITLE_FONTS}")
+        vs.subtitle_font = data.font
+    if data.font_size is not None:
+        vs.subtitle_font_size = data.font_size
+    if data.color is not None:
+        vs.subtitle_color = data.color
+    if data.stroke_color is not None:
+        vs.subtitle_stroke_color = data.stroke_color
+    if data.stroke_width is not None:
+        vs.subtitle_stroke_width = data.stroke_width
+    if "x" in fields_set:
+        vs.subtitle_x = data.x
+    if "y" in fields_set:
+        vs.subtitle_y = data.y
+    await session.commit()
+    await session.refresh(vs)
+    return _video_source_to_response(vs)
+
+
+@router.patch("/{project_id}/overlay-settings", response_model=VideoSourceResponse)
+async def update_overlay_settings(
+    project_id: str,
+    data: OverlaySettingsUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Обновить настройки баннера и субтитров одним запросом."""
+    vs = await _get_video_source_or_404(project_id, session)
+    if data.banner:
+        b = data.banner
+        fields_set = b.model_fields_set
+        if b.position is not None:
+            if b.position not in ("top", "center", "bottom"):
+                raise HTTPException(400, "position должен быть: top, center, bottom")
+            vs.banner_position = b.position
+        if "x" in fields_set:
+            vs.banner_x = b.x
+        if "y" in fields_set:
+            vs.banner_y = b.y
+        if b.scale is not None:
+            vs.banner_scale = b.scale
+        if b.opacity is not None:
+            vs.banner_opacity = b.opacity
+    if data.subtitles:
+        s = data.subtitles
+        fields_set = s.model_fields_set
+        if s.enabled is not None:
+            vs.subtitles_enabled = s.enabled
+        if s.font is not None:
+            if s.font not in SUBTITLE_FONTS:
+                raise HTTPException(400, f"Шрифт должен быть одним из: {SUBTITLE_FONTS}")
+            vs.subtitle_font = s.font
+        if s.font_size is not None:
+            vs.subtitle_font_size = s.font_size
+        if s.color is not None:
+            vs.subtitle_color = s.color
+        if s.stroke_color is not None:
+            vs.subtitle_stroke_color = s.stroke_color
+        if s.stroke_width is not None:
+            vs.subtitle_stroke_width = s.stroke_width
+        if "x" in fields_set:
+            vs.subtitle_x = s.x
+        if "y" in fields_set:
+            vs.subtitle_y = s.y
+    await session.commit()
+    await session.refresh(vs)
+    return _video_source_to_response(vs)
+
+
+@router.get("/overlay-fonts")
+async def list_overlay_fonts():
+    """Список доступных шрифтов для субтитров."""
+    return {"fonts": SUBTITLE_FONTS}
 
 
 @router.delete("/{project_id}")
@@ -252,6 +350,14 @@ def _project_to_response(p: Project) -> ProjectResponse:
 
 
 def _video_source_to_response(vs: VideoSource) -> VideoSourceResponse:
+    source_url = None
+    banner_url = None
+    if vs.filepath:
+        fname = Path(vs.filepath).name
+        source_url = f"/uploads/{fname}"
+    if vs.banner_path:
+        banner_url = f"/uploads/{Path(vs.banner_path).name}"
+
     return VideoSourceResponse(
         id=vs.id,
         filename=vs.filename,
@@ -260,6 +366,20 @@ def _video_source_to_response(vs: VideoSource) -> VideoSourceResponse:
         height=vs.height,
         fps=vs.fps,
         banner_path=vs.banner_path,
-        banner_position=vs.banner_position,
+        banner_position=vs.banner_position or "bottom",
+        banner_x=vs.banner_x,
+        banner_y=vs.banner_y,
+        banner_scale=vs.banner_scale if vs.banner_scale is not None else 0.9,
+        banner_opacity=vs.banner_opacity if vs.banner_opacity is not None else 0.85,
+        subtitles_enabled=vs.subtitles_enabled if vs.subtitles_enabled is not None else True,
+        subtitle_font=vs.subtitle_font or "Arial",
+        subtitle_font_size=vs.subtitle_font_size or 52,
+        subtitle_color=vs.subtitle_color or "white",
+        subtitle_stroke_color=vs.subtitle_stroke_color or "black",
+        subtitle_stroke_width=vs.subtitle_stroke_width or 3,
+        subtitle_x=vs.subtitle_x,
+        subtitle_y=vs.subtitle_y,
         has_transcription=vs.transcription is not None,
+        source_video_url=source_url,
+        banner_url=banner_url,
     )

@@ -37,13 +37,58 @@ BANNER_POSITIONS = {
     "bottom": "bottom",
 }
 
-# Настройки субтитров
-# Шрифт: путь к .ttf или имя системного шрифта (Arial, Impact)
-SUBTITLE_FONT = "C:/Windows/Fonts/arial.ttf"   # Arial на Windows
+# Настройки субтитров (значения по умолчанию)
 SUBTITLE_FONT_SIZE = 52           # крупный шрифт для 1080×1920
 SUBTITLE_COLOR = "white"          # цвет текста
 SUBTITLE_STROKE_COLOR = "black"   # цвет обводки
 SUBTITLE_STROKE_WIDTH = 3         # толщина обводки (px)
+
+# Карта имён шрифтов → пути к .ttf на разных ОС
+import platform
+
+_FONT_PATHS = {
+    "Arial": {
+        "Windows": "C:/Windows/Fonts/arial.ttf",
+        "Darwin": "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "Linux": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    },
+    "Impact": {
+        "Windows": "C:/Windows/Fonts/impact.ttf",
+        "Darwin": "/System/Library/Fonts/Supplemental/Impact.ttf",
+        "Linux": "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+    },
+    "Verdana": {
+        "Windows": "C:/Windows/Fonts/verdana.ttf",
+        "Darwin": "/Library/Fonts/Verdana.ttf",
+        "Linux": "/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf",
+    },
+    "Georgia": {
+        "Windows": "C:/Windows/Fonts/georgia.ttf",
+        "Darwin": "/System/Library/Fonts/Supplemental/Georgia.ttf",
+        "Linux": "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf",
+    },
+}
+
+SUBTITLE_FONTS = list(_FONT_PATHS.keys())
+
+
+def resolve_subtitle_font(font_name: str) -> str:
+    """Возвращает путь к .ttf для заданного имени шрифта."""
+    system = platform.system()
+    os_key = "Windows" if system == "Windows" else ("Darwin" if system == "Darwin" else "Linux")
+    paths = _FONT_PATHS.get(font_name) or _FONT_PATHS["Arial"]
+    path = paths.get(os_key) or paths["Linux"]
+    if os.path.exists(path):
+        return path
+    # Fallback: первый доступный шрифт из карты
+    for name, variants in _FONT_PATHS.items():
+        candidate = variants.get(os_key) or variants["Linux"]
+        if os.path.exists(candidate):
+            return candidate
+    return font_name  # MoviePy может принять имя системного шрифта
+
+
+SUBTITLE_FONT = resolve_subtitle_font("Arial")
 # Позиция: moviepy выставляет по координатам, см. _render_subtitles
 
 # Настройки Whisper (faster-whisper, локально)

@@ -6,6 +6,9 @@
     'use strict';
 
     const API = '/api';
+    const CANVAS_W = 1080;
+    const CANVAS_H = 1920;
+
     let state = {
         projects: [],
         activeProjectId: null,
@@ -16,7 +19,26 @@
         selectedSegments: new Set(),
         activeTaskId: null,
         pollTimer: null,
+        previewClipId: null,
+        transcriptionSegments: [],
+        overlaySettings: {
+            subtitles_enabled: true,
+            subtitle_font: 'Arial',
+            subtitle_font_size: 52,
+            subtitle_color: '#ffffff',
+            subtitle_stroke_color: '#000000',
+            subtitle_stroke_width: 3,
+            subtitle_x: null,
+            subtitle_y: null,
+            banner_position: 'bottom',
+            banner_x: null,
+            banner_y: null,
+            banner_scale: 0.9,
+            banner_opacity: 0.85,
+        },
     };
+
+    let saveOverlayTimer = null;
 
     // ── ДОМ-элементы ──
     const $ = (sel) => document.querySelector(sel);
@@ -27,6 +49,7 @@
         bindNavigation();
         bindDashboard();
         bindWorkspace();
+        bindPreview();
         bindPublishing();
         bindSettings();
         bindModal();
@@ -117,6 +140,9 @@
             const resp = await fetch(`${API}/projects/${id}`);
             const proj = await resp.json();
             state.activeVideoSource = proj.video_source || null;
+            if (state.activeVideoSource) {
+                loadOverlaySettingsFromVideoSource(state.activeVideoSource);
+            }
             showUploadPanel(proj);
         } catch (e) {
             console.error(e);
@@ -209,11 +235,7 @@
                 btn.classList.remove('border-gray-700', 'text-gray-400');
 
                 if (state.activeProjectId) {
-                    await fetch(`${API}/projects/${state.activeProjectId}/banner-settings`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ position: pos }),
-                    });
+                    await saveOverlaySettings({ banner: { position: pos } });
                 }
             });
         });
@@ -266,6 +288,7 @@
             }
             const vs = await resp.json();
             state.activeVideoSource = vs;
+            if (vs) loadOverlaySettingsFromVideoSource(vs);
             await loadProjects();
             selectProject(state.activeProjectId);
         } catch (e) {
@@ -287,6 +310,7 @@
             if (!resp.ok) throw new Error((await resp.json()).detail || 'Ошибка');
             const vs = await resp.json();
             state.activeVideoSource = vs;
+            loadOverlaySettingsFromVideoSource(vs);
             $('#banner-info').classList.remove('hidden');
             $('#banner-info').innerHTML = '🖼️ Баннер загружен';
         } catch (e) {
@@ -301,6 +325,13 @@
     async function loadClips() {
         if (!state.activeProjectId) return;
         try {
+            const projResp = await fetch(`${API}/projects/${state.activeProjectId}`);
+            const proj = await projResp.json();
+            state.activeVideoSource = proj.video_source || null;
+            if (state.activeVideoSource) {
+                loadOverlaySettingsFromVideoSource(state.activeVideoSource);
+            }
+
             const resp = await fetch(`${API}/projects/${state.activeProjectId}/clips`);
             state.clips = await resp.json();
             renderWorkspace();
@@ -335,35 +366,82 @@
         // Рендер клипов
         renderClipsList();
         updateProcessBtn();
+        updatePreviewStage();
+    }
+
+    function getSelectableClips() {
+        return state.clips.filter(c => c.status !== 'processing');
+    }
+
+    function updateSelectAllCheckbox() {
+        const selectable = getSelectableClips();
+        const selectAll = $('#select-all-clips');
+        const row = $('#select-all-row');
+        if (!selectAll || !row) return;
+
+        if (selectable.length === 0) {
+            row.classList.add('hidden');
+            return;
+        }
+        row.classList.remove('hidden');
+
+        const selectedCount = selectable.filter(c => state.selectedClips.has(c.id)).length;
+        selectAll.checked = selectedCount === selectable.length;
+        selectAll.indeterminate = selectedCount > 0 && selectedCount < selectable.length;
+    }
+
+    function toggleSelectAll(checked) {
+        const selectable = getSelectableClips();
+        if (checked) {
+            selectable.forEach(c => state.selectedClips.add(c.id));
+        } else {
+            selectable.forEach(c => state.selectedClips.delete(c.id));
+        }
+        renderClipsList();
+        updateProcessBtn();
+        updateSelectAllCheckbox();
     }
 
     function renderClipsList() {
         const clipsList = $('#clips-list');
         if (state.clips.length === 0) {
             clipsList.innerHTML = '<p class="text-gray-500 text-sm">Нет клипов. Выделите текст в транскрипте и нажмите «Создать клип».</p>';
-        } else {
-            clipsList.innerHTML = state.clips.map(c => renderClipCard(c)).join('');
-            clipsList.querySelectorAll('.clip-card').forEach(card => {
-                card.addEventListener('click', (e) => {
-                    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-                    toggleClipSelection(card.dataset.id);
-                });
-            });
-            // Кнопки удаления
-            clipsList.querySelectorAll('.clip-delete').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await deleteClip(btn.dataset.id);
-                });
-            });
-            // Кнопки генерации названия
-            clipsList.querySelectorAll('.gen-meta-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await generateClipMeta(btn.dataset.id);
-                });
-            });
+            updateSelectAllCheckbox();
+            return;
         }
+        clipsList.innerHTML = state.clips.map(c => renderClipCard(c)).join('');
+        clipsList.querySelectorAll('.clip-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.clip-checkbox') || e.target.tagName === 'BUTTON') return;
+                toggleClipSelection(card.dataset.id);
+                setPreviewClip(card.dataset.id);
+            });
+        });
+        clipsList.querySelectorAll('.clip-checkbox').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const id = cb.dataset.id;
+                if (cb.checked) state.selectedClips.add(id);
+                else state.selectedClips.delete(id);
+                updateSelectAllCheckbox();
+                updateProcessBtn();
+                const card = cb.closest('.clip-card');
+                if (card) card.classList.toggle('selected', cb.checked);
+            });
+        });
+        clipsList.querySelectorAll('.clip-delete').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await deleteClip(btn.dataset.id);
+            });
+        });
+        clipsList.querySelectorAll('.gen-meta-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await generateClipMeta(btn.dataset.id);
+            });
+        });
+        updateSelectAllCheckbox();
     }
 
     async function loadTranscription() {
@@ -372,6 +450,7 @@
             const resp = await fetch(`${API}/projects/${state.activeProjectId}/transcription`);
             if (!resp.ok) return;
             const data = await resp.json();
+            state.transcriptionSegments = data.segments || [];
             const div = $('#transcript-text');
             div.innerHTML = data.segments.map((seg, i) => {
                 const cls = [
@@ -440,19 +519,25 @@
         const statusClass = `status-${c.status}`;
         const statusText = { pending: 'Ожидает', processing: 'В работе', done: 'Готов', error: 'Ошибка' }[c.status] || c.status;
         const selected = state.selectedClips.has(c.id) ? 'selected' : '';
+        const isPreview = state.previewClipId === c.id ? 'ring-1 ring-purple-500/50' : '';
         return `
-        <div class="clip-card ${selected}" data-id="${c.id}">
-            <div class="flex items-center justify-between mb-2">
-                <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}</span>
-                <span class="status-badge ${statusClass}">${statusText}</span>
-            </div>
-            <div class="text-xs text-gray-500">
-                ${fmtTime(c.start_time)} → ${fmtTime(c.end_time)} (${fmtDuration(c.end_time - c.start_time)})
-            </div>
-            ${c.text_snippet ? `<div class="text-xs text-gray-400 mt-1 truncate">${escHtml(c.text_snippet)}</div>` : ''}
-            <div class="flex gap-2 mt-2">
-                ${c.text_snippet ? `<button class="gen-meta-btn text-yellow-400 hover:text-yellow-300 text-xs" data-id="${c.id}">🤖 Название</button>` : ''}
-                <button class="clip-delete text-red-400 hover:text-red-300 text-xs" data-id="${c.id}">Удалить</button>
+        <div class="clip-card ${selected} ${isPreview}" data-id="${c.id}">
+            <div class="flex items-start gap-2">
+                <input type="checkbox" class="clip-checkbox mt-0.5" data-id="${c.id}" ${selected ? 'checked' : ''}>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}</span>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        ${fmtTime(c.start_time)} → ${fmtTime(c.end_time)} (${fmtDuration(c.end_time - c.start_time)})
+                    </div>
+                    ${c.text_snippet ? `<div class="text-xs text-gray-400 mt-1 truncate">${escHtml(c.text_snippet)}</div>` : ''}
+                    <div class="flex gap-2 mt-2">
+                        ${c.text_snippet ? `<button class="gen-meta-btn text-yellow-400 hover:text-yellow-300 text-xs" data-id="${c.id}">🤖 Название</button>` : ''}
+                        <button class="clip-delete text-red-400 hover:text-red-300 text-xs" data-id="${c.id}">Удалить</button>
+                    </div>
+                </div>
             </div>
         </div>`;
     }
@@ -460,7 +545,14 @@
     function toggleClipSelection(id) {
         if (state.selectedClips.has(id)) state.selectedClips.delete(id);
         else state.selectedClips.add(id);
-        renderWorkspace();
+        renderClipsList();
+        updateProcessBtn();
+    }
+
+    function setPreviewClip(id) {
+        state.previewClipId = id;
+        renderClipsList();
+        updatePreviewVideo();
     }
 
     function toggleSegment(idx) {
@@ -482,9 +574,11 @@
         try {
             await fetch(`${API}/projects/${state.activeProjectId}/clips/${clipId}`, { method: 'DELETE' });
             state.selectedClips.delete(clipId);
+            if (state.previewClipId === clipId) state.previewClipId = null;
             state.clips = state.clips.filter(c => c.id !== clipId);
             renderClipsList();
             updateProcessBtn();
+            updatePreviewStage();
         } catch (e) {
             alert('Ошибка: ' + e.message);
         }
@@ -511,7 +605,472 @@
         }
     }
 
+    // ════════════════════════════════════════
+    // PREVIEW: Оверлеи субтитров и баннера
+    // ════════════════════════════════════════
+
+    function toHexColor(color) {
+        const map = { white: '#ffffff', black: '#000000', red: '#ff0000', yellow: '#ffff00' };
+        if (!color) return '#ffffff';
+        if (color.startsWith('#')) return color;
+        return map[color.toLowerCase()] || color;
+    }
+
+    function loadOverlaySettingsFromVideoSource(vs) {
+        state.overlaySettings = {
+            subtitles_enabled: vs.subtitles_enabled !== false,
+            subtitle_font: vs.subtitle_font || 'Arial',
+            subtitle_font_size: vs.subtitle_font_size || 52,
+            subtitle_color: toHexColor(vs.subtitle_color || 'white'),
+            subtitle_stroke_color: toHexColor(vs.subtitle_stroke_color || 'black'),
+            subtitle_stroke_width: vs.subtitle_stroke_width ?? 3,
+            subtitle_x: vs.subtitle_x,
+            subtitle_y: vs.subtitle_y,
+            banner_position: vs.banner_position || 'bottom',
+            banner_x: vs.banner_x,
+            banner_y: vs.banner_y,
+            banner_scale: vs.banner_scale ?? 0.9,
+            banner_opacity: vs.banner_opacity ?? 0.85,
+        };
+        state.bannerPosition = state.overlaySettings.banner_position;
+        applyOverlaySettingsToUI();
+    }
+
+    function applyOverlaySettingsToUI() {
+        const s = state.overlaySettings;
+        const subEnabled = $('#sub-enabled');
+        if (subEnabled) subEnabled.checked = s.subtitles_enabled;
+        const subFont = $('#sub-font');
+        if (subFont) subFont.value = s.subtitle_font;
+        const subSize = $('#sub-size');
+        if (subSize) subSize.value = s.subtitle_font_size;
+        const subSizeVal = $('#sub-size-val');
+        if (subSizeVal) subSizeVal.textContent = s.subtitle_font_size;
+        const subColor = $('#sub-color');
+        if (subColor) subColor.value = s.subtitle_color;
+        const subStrokeColor = $('#sub-stroke-color');
+        if (subStrokeColor) subStrokeColor.value = s.subtitle_stroke_color;
+        const subStrokeWidth = $('#sub-stroke-width');
+        if (subStrokeWidth) subStrokeWidth.value = s.subtitle_stroke_width;
+        const subStrokeVal = $('#sub-stroke-val');
+        if (subStrokeVal) subStrokeVal.textContent = s.subtitle_stroke_width;
+
+        const bannerScale = $('#banner-scale');
+        if (bannerScale) bannerScale.value = Math.round(s.banner_scale * 100);
+        const bannerScaleVal = $('#banner-scale-val');
+        if (bannerScaleVal) bannerScaleVal.textContent = Math.round(s.banner_scale * 100);
+        const bannerOpacity = $('#banner-opacity');
+        if (bannerOpacity) bannerOpacity.value = Math.round(s.banner_opacity * 100);
+        const bannerOpacityVal = $('#banner-opacity-val');
+        if (bannerOpacityVal) bannerOpacityVal.textContent = Math.round(s.banner_opacity * 100);
+
+        $$('.preview-pos-btn').forEach(btn => {
+            const active = btn.dataset.pos === s.banner_position;
+            btn.classList.toggle('active', active);
+            btn.classList.toggle('border-purple-600', active);
+            btn.classList.toggle('bg-purple-600/20', active);
+            btn.classList.toggle('text-purple-300', active);
+            btn.classList.toggle('border-gray-700', !active);
+            btn.classList.toggle('text-gray-400', !active);
+        });
+
+        $$('.pos-btn').forEach(btn => {
+            const active = btn.dataset.pos === s.banner_position;
+            btn.classList.toggle('bg-brand-600/20', active);
+            btn.classList.toggle('border-brand-600', active);
+            btn.classList.toggle('text-brand-300', active);
+            btn.classList.toggle('border-gray-700', !active);
+            btn.classList.toggle('text-gray-400', !active);
+        });
+
+        updatePreviewOverlays();
+    }
+
+    function debouncedSaveOverlaySettings(payload) {
+        if (saveOverlayTimer) clearTimeout(saveOverlayTimer);
+        saveOverlayTimer = setTimeout(() => saveOverlaySettings(payload), 400);
+    }
+
+    async function saveOverlaySettings(payload) {
+        if (!state.activeProjectId) return;
+        try {
+            const resp = await fetch(`${API}/projects/${state.activeProjectId}/overlay-settings`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (resp.ok) {
+                const vs = await resp.json();
+                state.activeVideoSource = vs;
+            }
+        } catch (e) {
+            console.error('Ошибка сохранения настроек:', e);
+        }
+    }
+
+    function getPreviewScale() {
+        const stage = $('#preview-stage');
+        if (!stage) return 1;
+        return stage.clientWidth / CANVAS_W;
+    }
+
+    function canvasToPercent(x, y) {
+        return {
+            left: (x / CANVAS_W) * 100,
+            top: (y / CANVAS_H) * 100,
+        };
+    }
+
+    function updatePreviewOverlays() {
+        const s = state.overlaySettings;
+        const scale = getPreviewScale();
+        const bannerEl = $('#preview-banner');
+        const subtitleEl = $('#preview-subtitle');
+
+        if (bannerEl && state.activeVideoSource?.banner_url) {
+            const url = state.activeVideoSource.banner_url;
+            if (bannerEl.dataset.src !== url) {
+                bannerEl.dataset.src = url;
+                bannerEl.src = url;
+            }
+            bannerEl.classList.remove('hidden');
+            bannerEl.style.opacity = s.banner_opacity;
+            bannerEl.style.width = (s.banner_scale * 100) + '%';
+            bannerEl.style.maxWidth = (s.banner_scale * 100) + '%';
+
+            if (bannerEl.complete) {
+                positionBannerOverlay();
+            } else {
+                bannerEl.onload = () => positionBannerOverlay();
+            }
+        } else if (bannerEl) {
+            bannerEl.classList.add('hidden');
+        }
+
+        if (subtitleEl) {
+            if (s.subtitles_enabled) {
+                subtitleEl.classList.remove('hidden');
+                subtitleEl.style.fontFamily = s.subtitle_font + ', sans-serif';
+                subtitleEl.style.fontSize = (s.subtitle_font_size * scale) + 'px';
+                subtitleEl.style.color = s.subtitle_color;
+                subtitleEl.style.webkitTextStroke = `${s.subtitle_stroke_width * scale}px ${s.subtitle_stroke_color}`;
+                subtitleEl.style.paintOrder = 'stroke fill';
+                positionSubtitleOverlay();
+            } else {
+                subtitleEl.classList.add('hidden');
+            }
+        }
+    }
+
+    function positionBannerOverlay() {
+        const s = state.overlaySettings;
+        const bannerEl = $('#preview-banner');
+        const stage = $('#preview-stage');
+        if (!bannerEl || !stage || bannerEl.classList.contains('hidden')) return;
+
+        const scale = getPreviewScale();
+        const bannerW = bannerEl.offsetWidth / scale;
+        const bannerH = bannerEl.offsetHeight / scale;
+
+        let x, y;
+        if (s.banner_x != null && s.banner_y != null) {
+            x = s.banner_x;
+            y = s.banner_y;
+        } else {
+            x = (CANVAS_W - bannerW) / 2;
+            y = calcBannerPresetY(s.banner_position, bannerH);
+        }
+
+        x = Math.max(0, Math.min(CANVAS_W - bannerW, x));
+        y = Math.max(0, Math.min(CANVAS_H - bannerH, y));
+
+        const pos = canvasToPercent(x, y);
+        bannerEl.style.left = pos.left + '%';
+        bannerEl.style.top = pos.top + '%';
+        bannerEl.style.transform = 'none';
+    }
+
+    function positionSubtitleOverlay() {
+        const s = state.overlaySettings;
+        const subtitleEl = $('#preview-subtitle');
+        const stage = $('#preview-stage');
+        if (!subtitleEl || !stage || subtitleEl.classList.contains('hidden')) return;
+
+        const scale = getPreviewScale();
+        const subW = subtitleEl.offsetWidth / scale;
+        const subH = subtitleEl.offsetHeight / scale;
+
+        let x, y;
+        if (s.subtitle_x != null && s.subtitle_y != null) {
+            x = s.subtitle_x;
+            y = s.subtitle_y;
+        } else {
+            x = (CANVAS_W - subW) / 2;
+            y = CANVAS_H - subH - 60;
+        }
+
+        x = Math.max(0, Math.min(CANVAS_W - subW, x));
+        y = Math.max(0, Math.min(CANVAS_H - subH, y));
+
+        const pos = canvasToPercent(x, y);
+        subtitleEl.style.left = pos.left + '%';
+        subtitleEl.style.top = pos.top + '%';
+        subtitleEl.style.width = '88%';
+    }
+
+    function calcBannerPresetY(position, bannerH) {
+        const margin = 20;
+        if (position === 'top') return margin;
+        if (position === 'center') return (CANVAS_H - bannerH) / 2;
+        return CANVAS_H - bannerH - margin;
+    }
+
+    function applyBannerPreset(pos) {
+        state.overlaySettings.banner_position = pos;
+        state.overlaySettings.banner_x = null;
+        state.overlaySettings.banner_y = null;
+        state.bannerPosition = pos;
+        applyOverlaySettingsToUI();
+        debouncedSaveOverlaySettings({ banner: { position: pos, x: null, y: null } });
+    }
+
+    function updatePreviewSubtitleText(currentTime) {
+        const subtitleEl = $('#preview-subtitle');
+        if (!subtitleEl || !state.overlaySettings.subtitles_enabled) return;
+
+        const clip = state.clips.find(c => c.id === state.previewClipId);
+        if (!clip) {
+            subtitleEl.textContent = 'Пример субтитров';
+            return;
+        }
+
+        const seg = state.transcriptionSegments.find(s =>
+            s.start <= currentTime && s.end >= currentTime &&
+            s.end > clip.start_time && s.start < clip.end_time
+        );
+        subtitleEl.textContent = seg ? seg.text.trim() : '';
+        positionSubtitleOverlay();
+    }
+
+    function updatePreviewVideo() {
+        const video = $('#preview-video');
+        const hint = $('#preview-clip-hint');
+        const vs = state.activeVideoSource;
+        if (!video || !vs?.source_video_url) return;
+
+        let clip = state.clips.find(c => c.id === state.previewClipId);
+        if (!clip && state.clips.length > 0) {
+            clip = state.clips[0];
+            state.previewClipId = clip.id;
+        }
+
+        if (!clip) {
+            if (hint) hint.textContent = 'Создайте клип для предпросмотра';
+            video.removeAttribute('src');
+            return;
+        }
+
+        if (hint) hint.textContent = `${clip.title || 'Клип'} · ${fmtTime(clip.start_time)} → ${fmtTime(clip.end_time)}`;
+
+        if (video.dataset.clipId !== clip.id) {
+            video.dataset.clipId = clip.id;
+            video.src = vs.source_video_url;
+            video.onloadedmetadata = () => {
+                video.currentTime = clip.start_time + 0.1;
+            };
+        }
+
+        video.onplay = () => {
+            if (video.currentTime < clip.start_time || video.currentTime >= clip.end_time) {
+                video.currentTime = clip.start_time;
+            }
+        };
+
+        video.ontimeupdate = () => {
+            if (video.currentTime >= clip.end_time) {
+                video.currentTime = clip.start_time;
+            }
+            updatePreviewSubtitleText(video.currentTime);
+        };
+
+        updatePreviewOverlays();
+        updatePreviewSubtitleText(clip.start_time);
+        video.play().catch(() => {});
+    }
+
+    function updatePreviewStage() {
+        updatePreviewVideo();
+        updatePreviewOverlays();
+    }
+
+    function makeOverlayDraggable(el, type) {
+        if (!el || el.dataset.dragBound) return;
+        el.dataset.dragBound = '1';
+
+        el.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            el.classList.add('dragging');
+            el.setPointerCapture(e.pointerId);
+
+            const stage = $('#preview-stage');
+            const rect = stage.getBoundingClientRect();
+            const scale = rect.width / CANVAS_W;
+
+            const elRect = el.getBoundingClientRect();
+            const offsetX = (e.clientX - elRect.left) / scale;
+            const offsetY = (e.clientY - elRect.top) / scale;
+
+            const onMove = (ev) => {
+                let x = (ev.clientX - rect.left) / scale - offsetX;
+                let y = (ev.clientY - rect.top) / scale - offsetY;
+
+                const elW = el.offsetWidth / scale;
+                const elH = el.offsetHeight / scale;
+                x = Math.max(0, Math.min(CANVAS_W - elW, x));
+                y = Math.max(0, Math.min(CANVAS_H - elH, y));
+
+                const pos = canvasToPercent(x, y);
+                el.style.left = pos.left + '%';
+                el.style.top = pos.top + '%';
+
+                if (type === 'banner') {
+                    state.overlaySettings.banner_x = x;
+                    state.overlaySettings.banner_y = y;
+                } else {
+                    state.overlaySettings.subtitle_x = x;
+                    state.overlaySettings.subtitle_y = y;
+                }
+            };
+
+            const onUp = () => {
+                el.classList.remove('dragging');
+                el.removeEventListener('pointermove', onMove);
+                el.removeEventListener('pointerup', onUp);
+                el.removeEventListener('pointercancel', onUp);
+
+                if (type === 'banner') {
+                    debouncedSaveOverlaySettings({
+                        banner: {
+                            x: state.overlaySettings.banner_x,
+                            y: state.overlaySettings.banner_y,
+                        },
+                    });
+                } else {
+                    debouncedSaveOverlaySettings({
+                        subtitles: {
+                            x: state.overlaySettings.subtitle_x,
+                            y: state.overlaySettings.subtitle_y,
+                        },
+                    });
+                }
+            };
+
+            el.addEventListener('pointermove', onMove);
+            el.addEventListener('pointerup', onUp);
+            el.addEventListener('pointercancel', onUp);
+        });
+    }
+
+    function bindPreview() {
+        const subEnabled = $('#sub-enabled');
+        const subFont = $('#sub-font');
+        const subSize = $('#sub-size');
+        const subColor = $('#sub-color');
+        const subStrokeColor = $('#sub-stroke-color');
+        const subStrokeWidth = $('#sub-stroke-width');
+        const bannerScale = $('#banner-scale');
+        const bannerOpacity = $('#banner-opacity');
+
+        if (subEnabled) {
+            subEnabled.addEventListener('change', () => {
+                state.overlaySettings.subtitles_enabled = subEnabled.checked;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { enabled: subEnabled.checked } });
+            });
+        }
+
+        if (subFont) {
+            subFont.addEventListener('change', () => {
+                state.overlaySettings.subtitle_font = subFont.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { font: subFont.value } });
+            });
+        }
+
+        if (subSize) {
+            subSize.addEventListener('input', () => {
+                state.overlaySettings.subtitle_font_size = parseInt(subSize.value, 10);
+                $('#sub-size-val').textContent = subSize.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { font_size: parseInt(subSize.value, 10) } });
+            });
+        }
+
+        if (subColor) {
+            subColor.addEventListener('input', () => {
+                state.overlaySettings.subtitle_color = subColor.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { color: subColor.value } });
+            });
+        }
+
+        if (subStrokeColor) {
+            subStrokeColor.addEventListener('input', () => {
+                state.overlaySettings.subtitle_stroke_color = subStrokeColor.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { stroke_color: subStrokeColor.value } });
+            });
+        }
+
+        if (subStrokeWidth) {
+            subStrokeWidth.addEventListener('input', () => {
+                state.overlaySettings.subtitle_stroke_width = parseInt(subStrokeWidth.value, 10);
+                $('#sub-stroke-val').textContent = subStrokeWidth.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ subtitles: { stroke_width: parseInt(subStrokeWidth.value, 10) } });
+            });
+        }
+
+        if (bannerScale) {
+            bannerScale.addEventListener('input', () => {
+                state.overlaySettings.banner_scale = parseInt(bannerScale.value, 10) / 100;
+                state.overlaySettings.banner_x = null;
+                state.overlaySettings.banner_y = null;
+                $('#banner-scale-val').textContent = bannerScale.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({
+                    banner: { scale: state.overlaySettings.banner_scale, x: null, y: null },
+                });
+            });
+        }
+
+        if (bannerOpacity) {
+            bannerOpacity.addEventListener('input', () => {
+                state.overlaySettings.banner_opacity = parseInt(bannerOpacity.value, 10) / 100;
+                $('#banner-opacity-val').textContent = bannerOpacity.value;
+                updatePreviewOverlays();
+                debouncedSaveOverlaySettings({ banner: { opacity: state.overlaySettings.banner_opacity } });
+            });
+        }
+
+        $$('.preview-pos-btn').forEach(btn => {
+            btn.addEventListener('click', () => applyBannerPreset(btn.dataset.pos));
+        });
+
+        makeOverlayDraggable($('#preview-banner'), 'banner');
+        makeOverlayDraggable($('#preview-subtitle'), 'subtitle');
+
+        window.addEventListener('resize', () => {
+            updatePreviewOverlays();
+        });
+    }
+
     function bindWorkspace() {
+        $('#select-all-clips').addEventListener('change', (e) => {
+            toggleSelectAll(e.target.checked);
+        });
+
         $('#btn-process-selected').addEventListener('click', async () => {
             if (state.selectedClips.size === 0) return;
             const btn = $('#btn-process-selected');
@@ -595,13 +1154,45 @@
         $('#btn-publish-selected').addEventListener('click', publishSelected);
         $('#btn-save-selected').addEventListener('click', saveSelected);
 
-        // Клик по клипу в publishing = превью
+        $('#publish-select-all').addEventListener('change', (e) => {
+            const done = state.clips.filter(c => c.status === 'done');
+            if (e.target.checked) {
+                done.forEach(c => state.selectedClips.add(c.id));
+            } else {
+                done.forEach(c => state.selectedClips.delete(c.id));
+            }
+            loadPublishQueue();
+        });
+
         $('#publishing-list').addEventListener('click', (e) => {
+            const checkbox = e.target.closest('.publish-checkbox');
+            if (checkbox) {
+                e.stopPropagation();
+                const id = checkbox.dataset.id;
+                if (checkbox.checked) state.selectedClips.add(id);
+                else state.selectedClips.delete(id);
+                updatePublishSelectAll();
+                return;
+            }
             const card = e.target.closest('.clip-card');
             if (!card) return;
             const clip = state.clips.find(c => c.id === card.dataset.id);
             if (clip && clip.output_path) showPreview(clip);
         });
+    }
+
+    function updatePublishSelectAll() {
+        const done = state.clips.filter(c => c.status === 'done');
+        const selectAll = $('#publish-select-all');
+        const row = $('#publish-select-all-row');
+        if (!selectAll || !row || done.length === 0) {
+            if (row) row.classList.add('hidden');
+            return;
+        }
+        row.classList.remove('hidden');
+        const selectedCount = done.filter(c => state.selectedClips.has(c.id)).length;
+        selectAll.checked = selectedCount === done.length;
+        selectAll.indeterminate = selectedCount > 0 && selectedCount < done.length;
     }
 
     async function loadPublishQueue() {
@@ -623,6 +1214,7 @@
                 list.innerHTML = done.map(c => renderPublishCard(c)).join('');
                 pubBtn.classList.remove('hidden');
                 saveBtn.classList.remove('hidden');
+                updatePublishSelectAll();
             }
         } catch (e) {
             console.error(e);
@@ -635,12 +1227,15 @@
         const vkBadge = c.vk_status ? `<span class="status-badge status-published">VK</span>` : '';
         return `
         <div class="clip-card ${sel}" data-id="${c.id}">
-            <div class="flex items-center justify-between">
-                <div>
-                    <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}</span>
-                    <span class="text-xs text-gray-500 ml-2">${fmtDuration(c.end_time - c.start_time)}</span>
+            <div class="flex items-center gap-2">
+                <input type="checkbox" class="publish-checkbox clip-checkbox" data-id="${c.id}" ${sel ? 'checked' : ''}>
+                <div class="flex-1 flex items-center justify-between min-w-0">
+                    <div>
+                        <span class="font-medium text-sm">${escHtml(c.title || 'Без названия')}</span>
+                        <span class="text-xs text-gray-500 ml-2">${fmtDuration(c.end_time - c.start_time)}</span>
+                    </div>
+                    <div class="flex gap-2">${ytBadge}${vkBadge}</div>
                 </div>
-                <div class="flex gap-2">${ytBadge}${vkBadge}</div>
             </div>
         </div>`;
     }
