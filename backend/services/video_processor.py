@@ -57,17 +57,18 @@ def process_clip(
     if cb:
         cb(10, "Загружаю фрагмент видео...")
     video = VideoFileClip(input_path).subclipped(start_time, end_time)
+    final_clip = None
 
     try:
         if cb:
             cb(25, "Кропирую в 9:16...")
-        cropped = _crop_to_vertical(video)
+        final_clip = _crop_to_vertical(video)
 
         if banner_path and os.path.exists(banner_path):
             if cb:
                 cb(40, "Накладываю баннер...")
-            cropped = _overlay_banner(
-                cropped,
+            final_clip = _overlay_banner(
+                final_clip,
                 banner_path,
                 banner_position,
                 x=banner_x,
@@ -79,8 +80,8 @@ def process_clip(
         if subtitles_enabled and subtitles_segments:
             if cb:
                 cb(55, "Рендерю субтитры...")
-            cropped = _render_subtitles(
-                cropped,
+            final_clip = _render_subtitles(
+                final_clip,
                 subtitles_segments,
                 start_time,
                 font=subtitle_font,
@@ -94,7 +95,7 @@ def process_clip(
 
         if cb:
             cb(70, "Экспортирую видео...")
-        cropped.write_videofile(
+        final_clip.write_videofile(
             output_path,
             fps=TARGET_FPS,
             codec="libx264",
@@ -110,9 +111,15 @@ def process_clip(
         return output_path
 
     finally:
-        video.close()
-        if 'cropped' in dir():
-            cropped.close()
+        if final_clip is not None:
+            try:
+                final_clip.close()
+            except Exception:
+                pass
+        try:
+            video.close()
+        except Exception:
+            pass
 
 
 def _crop_to_vertical(video: VideoFileClip) -> VideoFileClip:

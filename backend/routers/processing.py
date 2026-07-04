@@ -237,10 +237,11 @@ async def start_transcription(
             suggested_clips = result.get("suggested_clips", [])
         # mode == "manual" → suggested_clips остаётся пустым
 
-        import asyncio, json
+        import json
         from backend.database import async_session
         from backend.models import VideoSource, Clip
-        from sqlalchemy import select, delete
+        from backend.services.async_utils import run_async_in_thread
+        from sqlalchemy import select, delete, and_
 
         async def _save():
             async with async_session() as s:
@@ -257,8 +258,10 @@ async def start_transcription(
                 # Удаляем старые авто/ИИ-клипы перед созданием новых
                 await s.execute(
                     delete(Clip).where(
-                        Clip.project_id == pid,
-                        Clip.is_suggested.is_(True),
+                        and_(
+                            Clip.project_id == pid,
+                            Clip.is_suggested.is_(True),
+                        )
                     )
                 )
 
@@ -276,7 +279,7 @@ async def start_transcription(
                     s.add(clip)
                 await s.commit()
 
-        asyncio.run(_save())
+        run_async_in_thread(_save())
 
         result["suggested_clips"] = suggested_clips
         result["clip_selection_mode"] = mode
@@ -385,10 +388,11 @@ async def process_clips(
     def _run_process(video_path: str, banner_path: str | None, vs_settings: dict,
                      pid: str, specs: list, _progress_callback=None):
         """Выполняется в фоне: обработка всех клипов."""
-        import asyncio, json
+        import json
         from datetime import datetime
         from backend.database import async_session
         from backend.models import Clip, VideoSource
+        from backend.services.async_utils import run_async_in_thread
         from sqlalchemy import select
 
         transcription_segments = None
@@ -402,7 +406,7 @@ async def process_clips(
                     data = json.loads(vs_db.transcription)
                     transcription_segments = data.get("segments", [])
 
-        asyncio.run(_load_transcription())
+        run_async_in_thread(_load_transcription())
 
         results = []
         total = len(specs)
@@ -456,7 +460,7 @@ async def process_clips(
                             c.processed_at = datetime.utcnow()
                             await s.commit()
 
-                asyncio.run(_save_done())
+                run_async_in_thread(_save_done())
 
                 results.append({
                     "clip_id": spec["clip_id"],
@@ -474,7 +478,7 @@ async def process_clips(
                             c.status = "error"
                             await s.commit()
 
-                asyncio.run(_save_error())
+                run_async_in_thread(_save_error())
 
                 results.append({
                     "clip_id": spec["clip_id"],

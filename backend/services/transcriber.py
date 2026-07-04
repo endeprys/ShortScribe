@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from dataclasses import dataclass, field
 
 from backend.config import (
@@ -36,7 +36,7 @@ def transcribe_audio(
     video_path: str,
     model_name: Optional[str] = None,
     generate_suggestions: bool = True,
-    _progress_callback: Optional[callable] = None,
+    _progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> dict:
     """
     Извлекает аудиодорожку из видео и распознаёт речь через faster-whisper.

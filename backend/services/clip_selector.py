@@ -2,7 +2,12 @@
 ИИ-подбор клипов через Ollama: анализ полной транскрипции и поиск
 логически завершённых интересных фрагментов для Shorts.
 """
+from __future__ import annotations
+
 import json
+import re
+from typing import Any, Callable, Optional
+
 import httpx
 
 from backend.config import (
@@ -12,6 +17,8 @@ from backend.config import (
     DEFAULT_AI_CLIP_DURATION_MODE,
 )
 from backend.services.metadata_generator import DEFAULT_MODEL, OLLAMA_BASE
+
+ProgressCallback = Callable[[int, str], None]
 
 
 def resolve_ai_duration_limits(
@@ -42,8 +49,8 @@ def find_clips_with_ai(
     min_duration: float | None = None,
     max_duration: float | None = None,
     model: str = DEFAULT_MODEL,
-    _progress_callback=None,
-) -> dict:
+    _progress_callback: Optional[ProgressCallback] = None,
+) -> dict[str, Any]:
     """
     Анализирует транскрипцию через Ollama и возвращает рекомендованные клипы.
     """
@@ -96,6 +103,8 @@ def find_clips_with_ai(
             "error": "Ollama недоступен. Запустите: ollama serve",
             "fallback_used": False,
         }
+    except (ValueError, json.JSONDecodeError) as e:
+        return {"clips": [], "error": f"Ошибка разбора ответа ИИ: {e}", "fallback_used": False}
     except Exception as e:
         return {"clips": [], "error": str(e), "fallback_used": False}
 
@@ -107,8 +116,21 @@ def apply_clip_buffer(
     buffer_seconds: float,
 ) -> tuple[float, float]:
     """Добавляет буфер до/после клипа и ограничивает диапазон видео."""
+    buffer_seconds = max(0.0, float(buffer_seconds))
+
+    if end_time < start_time:
+        start_time, end_time = end_time, start_time
+
     start = max(0.0, start_time - buffer_seconds)
-    end = min(video_duration, end_time + buffer_seconds) if video_duration else end_time + buffer_seconds
+    end = end_time + buffer_seconds
+
+    if video_duration and video_duration > 0:
+        end = min(float(video_duration), end)
+        start = min(start, end)
+
+    if end <= start:
+        end = start + 0.1
+
     return round(start, 2), round(end, 2)
 
 
@@ -170,15 +192,25 @@ def _build_prompt(
 
 def _parse_ai_response(raw: str) -> list[dict]:
     """Извлекает список клипов из ответа модели."""
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1:
+    cleaned = raw.strip()
+    # Убираем markdown-обёртку ```json ... ```
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if fence:
+        cleaned = fence.group(1).strip()
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
         raise ValueError("ИИ не вернул JSON")
 
-    data = json.loads(raw[start:end + 1])
+    try:
+        data = json.loads(cleaned[start:end + 1])
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Невалидный JSON от ИИ: {e}") from e
+
     clips = data.get("clips", [])
     if not isinstance(clips, list):
-        raise ValueError("Неверный формат ответа ИИ")
+        raise ValueError("Неверный формат ответа ИИ: clips должен быть массивом")
     return clips
 
 
@@ -193,7 +225,6 @@ def _clips_from_ai_segments(
     """Преобразует ответ ИИ в клипы с таймкодами и буфером."""
     result = []
     last_end = -1.0
-    # Допуск на буфер при проверке длительности
     min_allowed = max(3.0, min_dur - buffer_seconds)
     max_allowed = max_dur + buffer_seconds * 2
 
